@@ -1,0 +1,269 @@
+Road Damage GIS - Huong dan dung Cloudflare Tunnel de test tu ben ngoai mang LAN
+
+Muc tieu
+- Cho phep chay backend / AI / app o laptop, nhung van test duoc tren dien thoai khi dang o ngoai nha, ngoai truong, hoac bat ky mang nao khac.
+- Khong can bat buoc cung Wi-Fi voi laptop.
+- Ap dung tot cho:
+  - test mobile reporter
+  - test admin web
+  - test upload anh, GPS, AI preview, GIS flow
+
+Tom tat cach hoat dong
+- Laptop van chay cac service nhu binh thuong.
+- Cloudflare Tunnel tao mot duong dan public HTTPS ve service local.
+- Dien thoai goi vao URL public cua Tunnel thay vi goi localhost.
+- Backend co the tiep tuc goi AI service local hoac cung tunnel tuy cach test.
+
+Khi nao nen dung
+- Muon test app mobile khi dang di ngoai duong.
+- Muon chia se URL tam thoi cho nguoi khac test.
+- Muon kiem tra luong that ma khong phu thuoc LAN.
+- Muon test camera, GPS, submit report, login, cookie/session tren thiet bi that.
+
+1) Dieu kien can co
+
+Ban can:
+- mot tai khoan Cloudflare
+- cong cu cloudflared
+- project dang chay duoc o local tren laptop
+
+Cloudflare Tunnel la cong cu chinh thuc de publis mot ung dung local ra Internet thong qua Cloudflare. No ho tro publish ung dung public, web, API va service local thong qua tunnel. Quick Tunnel co the dung nhanh bang lenh `cloudflared tunnel --url ...`. Xem tai lieu chinh thuc:
+- Cloudflare Tunnel: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/
+- Setup: https://developers.cloudflare.com/tunnel/setup/
+- Quick Tunnels: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/
+
+2) Nen expose cai gi ra ngoai mang
+
+De test dep va it loi nhat, khuyen nghi:
+
+- Backend API: co
+  - reporter app goi API
+  - web admin goi API
+  - auth / reports / GIS / AI client deu di qua day
+
+- AI service: tuy chon
+  - co the de backend goi local neu backend va AI cung nam tren laptop
+  - hoac expose AI service rieng neu ban muon test tam doc lap
+
+- Web admin: co the expose rieng neu can test tu dien thoai may tinh khac
+
+Neu muon giu don gian:
+- expose backend truoc
+- mobile app tro vao backend tunnel URL
+- AI service co the giu local neu backend van truy cap duoc
+
+3) Cach nhanh nhat: Quick Tunnel
+
+Day la cach nhanh de test tam thoi, khong can cau hinh DNS phuc tap.
+
+Buoc 1 - chay backend va AI o laptop
+- backend: chay service tai cong 5000
+- AI service: chay service tai cong 8001
+
+Trong repo hien tai, script local co san:
+- npm run dev:backend
+- npm run dev:ai
+
+Buoc 2 - mo tunnel ra backend
+Chay mot lenh tuong tu:
+- cloudflared tunnel --url http://localhost:5000
+
+Cloudflare se tra ve mot public URL HTTPS tam thoi.
+URL nay la URL dien thoai se goi thay cho `http://localhost:5000`.
+
+Buoc 3 - neu can, mo them tunnel cho AI
+Chay:
+- cloudflared tunnel --url http://localhost:8001
+
+Neu backend da lam trung gian goi AI, co the khong can expose AI rieng.
+
+Buoc 4 - cap nhat API URL trong app
+Khi test mobile tu ngoai mang:
+- `EXPO_PUBLIC_API_URL` phai tro ve public URL cua backend tunnel
+
+Khi test web admin:
+- `VITE_API_URL` phai tro ve public URL cua backend tunnel
+
+Luu y:
+- khong dung `localhost` trong app mobile neu test tren dien thoai that
+- `localhost` tren dien thoai chi la chinh dien thoai
+
+4) Cach on dinh hon: Named Tunnel
+
+Neu ban muon URL on dinh hon va de chia se, nen dung tunnel co ten thay vi quick tunnel.
+
+Quy trinh tong quat:
+- dang nhap cloudflared
+- tao tunnel co ten
+- gan hostname public
+- map hostname ve localhost:5000 (backend)
+- neu can, map them hostname khac ve localhost:8001 (AI)
+
+Cloudflare tai lieu chinh thuc mo ta quy trinh:
+- `cloudflared tunnel login`
+- tao tunnel
+- gan route / published application
+- map hostname public ve service local
+
+Luu y:
+- voi tunnel co ten, ban se co URL co dinh hon
+- thich hop neu can test lai nhieu lan
+- thich hop neu muon chia se cho nguoi khac
+
+5) Chuan cau hinh cho mobile app
+
+De app mobile noi duoc voi server laptop qua tunnel:
+
+- backend host van co the la `0.0.0.0` khi chay local
+- app mobile khong dung `http://localhost:5000`
+- app mobile phai dung public URL cua tunnel
+
+Bien moi truong can doi:
+- `EXPO_PUBLIC_API_URL`
+
+Neu app mobile hoac package chung doc URL tu bien khac, can dong bo theo quy uoc repo:
+- `EXPO_PUBLIC_API_URL`
+- `BACKEND_API_URL`
+- `VITE_API_URL`
+
+Khuyen nghi:
+- khi test ngoai mang, set ca 3 bien tren ve cung 1 backend tunnel URL
+
+6) Chuan cau hinh cho web admin
+
+Neu web admin goi backend qua tunnel:
+- `VITE_API_URL` phai tro ve backend tunnel URL
+
+Neu web admin dung cookie/session:
+- request phai bat `withCredentials: true`
+- backend phai cho phep CORS dung domain public dang test
+- cookie phai phu hop voi HTTPS
+
+Luu y quan trong:
+- neu web admin va backend la 2 domain khac nhau, cookie cross-site thuong can:
+  - `SameSite=None`
+  - `Secure=true`
+
+Neu chi test mobile thi van co the giu luong auth mobile rieng, khong can thay doi web admin ngay.
+
+7) Giao dien de test o ngoai mang
+
+Luong de test mobile thuc te:
+- mo app
+- dang nhap reporter
+- chup anh
+- lay GPS
+- preview AI
+- gui report
+- xem history/detail
+
+Luong de test admin:
+- dang nhap web admin
+- xem dashboard
+- xem danh sach report
+- mo map GIS
+- mo detail
+- cap nhat status / loai hu hong
+
+Neu tunnel hoat dong dung:
+- app mobile se thay du lieu that tu backend
+- report vua gui se xuat hien trong history/detail
+- admin se thay report do tren dashboard/list/map
+
+8) Quy trinh de test ngoai duong
+
+Truoc khi roi khoi phong:
+1. Chay backend
+2. Chay AI service neu can
+3. Khoi dong tunnel
+4. Copy public URL cua backend
+5. Cap nhat bien moi truong cua app
+6. Mo app mobile tren dien thoai
+7. Login va test report flow
+
+Neu muon test lai lan sau:
+- giu tunnel co dinh
+- chi cap nhat URL neu tunnel thay doi
+
+9) Kiem tra nhanh xem da dung chua
+
+Neu app da cau hinh dung, ban co the kiem tra:
+- mo backend tunnel URL tren trinh duyet: co phai ra JSON/health khong
+- mo app mobile: co login duoc khong
+- gui 1 report test: co vao DB va history khong
+- mo web admin: co thay report vua gui khong
+
+Neu co loi, thu doi tuong ung:
+- loi network / khong vao duoc API
+- loi CORS / cookie
+- loi `localhost` duoc goi sai tren dien thoai
+- loi backend khong truy cap duoc AI
+
+10) Loi thuong gap va cach xu ly
+
+Loi 1 - App van goi localhost
+- Dau hieu: dien thoai khong load duoc API
+- Nguyen nhan: app dang dung URL local thay vi URL tunnel
+- Cach sua: doi `EXPO_PUBLIC_API_URL` / `VITE_API_URL` sang URL public cua tunnel
+
+Loi 2 - Cookie khong di theo request
+- Dau hieu: web admin login xong nhung refresh mat session
+- Nguyen nhan: cookie / CORS / SameSite chua dung
+- Cach sua:
+  - bat `withCredentials`
+  - backend whitelist origin dung
+  - neu la cross-site, dung `SameSite=None` va `Secure=true`
+
+Loi 3 - Backend khong goi duoc AI
+- Dau hieu: tao report bi fallback manual review lien tuc
+- Nguyen nhan: backend dang truoc URL sai hoac AI service chua chay
+- Cach sua:
+  - kiem tra `AI_SERVICE_URL`
+  - kiem tra AI service health
+  - kiem tra port 8001
+
+Loi 4 - Tunnel lenh dung nhung service trong may chua chay
+- Dau hieu: tunnel co URL nhung vao bi 502 hoac 404
+- Nguyen nhan: cloudflared chi proxy vao local service da ton tai
+- Cach sua: chac chan backend/AI da chay truoc khi mo tunnel
+
+11) Khuyen nghi thuc te cho du an nay
+
+Neu muc tieu la test ngoai duong:
+- dung Cloudflare Tunnel cho backend
+- mobile app dung public URL do tunnel cap
+- neu can web admin, expose them web admin
+- giu AI service local neu backend goi duoc AI qua may laptop
+
+Neu muc tieu la chia se cho nguoi khac test:
+- dung named tunnel co URL on dinh
+- khong dung quick tunnel random neu muon test trong nhieu ngay
+
+Neu muc tieu la production that:
+- tunnel chi la cau noi test / staging
+- production nen co domain that, backend that, AI that, storage that
+
+12) Tai lieu lien quan trong repo
+
+Huong dan local run:
+- docs/REAL_RUN_GUIDE.txt
+
+Seed du lieu local:
+- docs/seed-demo-guide.md
+
+Script kiem tra san sang:
+- npm run check:ready
+
+Script seed du lieu:
+- npm run data:seed
+
+Script chay he thong:
+- npm run dev:backend
+- npm run dev:ai
+- npm run dev:web
+- npm run dev:all
+
+Ket luan ngan
+- Co, ban co the dung Cloudflare Tunnel de test app o ngoai mang.
+- Cach dung dung la: chay service tren laptop, mo tunnel ra backend, va cho app mobile goi vao public URL cua tunnel.
+- Neu can cookie/session cho web admin, phai chot them CORS + SameSite + Secure cho dung luong HTTPS cua tunnel.

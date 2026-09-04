@@ -1,0 +1,107 @@
+# Road Damage GIS - Git ignore rules
+# Keep source/config templates in Git, exclude local runtime data, caches, builds, and secrets.
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Package manager / CLI logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Expo / React Native / Metro
+.expo/
+.expo-shared/
+.expo-*/
+.expo*.log
+expo-env.d.ts
+.metro-cache/
+.metro-health-check*
+.cache/
+
+# Generated native folders from Expo prebuild
+/android/
+/ios/
+.kotlin/
+*.orig.*
+
+# Mobile signing / certificates
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Web build output
+dist/
+web-build/
+apps/web-admin/dist/
+apps/*/dist/
+packages/*/dist/
+
+# TypeScript / bundler cache
+*.tsbuildinfo
+.vite/
+.turbo/
+
+# Python runtime, virtualenv, and test cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+pip-wheel-metadata/
+
+# Backend runtime data
+services/backend-api/data/*.db
+services/backend-api/data/*.db-*
+services/backend-api/data/*.sqlite
+services/backend-api/data/*.sqlite3
+services/backend-api/uploads/**
+!services/backend-api/uploads/
+!services/backend-api/uploads/.gitkeep
+!services/backend-api/uploads/**/.gitkeep
+
+# AI model artifacts
+# Put large model weights in Git LFS or external release artifacts if they must be shared.
+services/ai-service/models/*.pt
+services/ai-service/models/*.pth
+services/ai-service/models/*.onnx
+services/ai-service/models/*.engine
+services/ai-service/models/*.weights
+services/ai-service/models/*.tflite
+!services/ai-service/models/.gitkeep
+
+# Local generated reports / handover helper outputs
+docs/_handover/rendered/
+docs/_handover/generate_handover_doc.py
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Local AI assistant workspace files
+.claude/
+.codex/

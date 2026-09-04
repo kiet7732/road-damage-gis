@@ -1,0 +1,210 @@
+Road Damage GIS - Huong dan chay he thong that (local)
+
+Muc tieu
+- Chay local theo huong san pham that, khong theo huong demo UI.
+- Bao gom: backend, AI service, frontend web, seed du lieu, test login, test reporter flow, test admin flow.
+
+Port chuan local
+- Frontend web: http://localhost:8081
+- Backend API: http://localhost:5000
+- AI service: http://localhost:8001
+
+1) Chuan bi moi truong
+
+Tao file .env tai root repo neu chua co:
+- copy .env.example -> .env
+
+Sau do kiem tra cac bien chinh:
+- BACKEND_API_URL=http://localhost:5000/api
+- EXPO_PUBLIC_API_URL=http://localhost:5000/api
+- VITE_API_URL=http://localhost:5000/api
+- AI_SERVICE_URL=http://localhost:8001
+- AI_DETECT_ENDPOINT=/api/ai/detect-road-damage
+
+Luu y:
+- Root .env la nguon chuan cho local run.
+- File .env trong backend/AI chi dung de override rieng neu can.
+
+2) Cai dat lan dau
+
+Chay:
+- npm run setup:local
+
+Script nay se:
+- tao node_modules o root neu chua co
+- tao .venv cho services/backend-api
+- tao .venv cho services/ai-service
+- cai dependencies Python cho 2 service
+
+3) Bat toan bo he thong
+
+Cach khuyen dung:
+- npm run dev:all
+
+Script nay se:
+- bat backend API o cong 5000 neu chua chay
+- bat AI service o cong 8001 neu chua chay
+- bat frontend web o cong 8081
+
+Neu muon chay tung phan rieng:
+- npm run dev:backend
+- npm run dev:ai
+- npm run dev:web
+
+4) Kiem tra health / readiness
+
+Health:
+- Backend: http://localhost:5000/health
+- AI service: http://localhost:8001/health
+
+Readiness:
+- Backend: http://localhost:5000/ready
+- AI service: http://localhost:8001/ready
+
+Kiem tra tong the:
+- npm run check:ready
+
+Readiness check se xac nhan:
+- backend dang chay va san sang
+- AI da load model xong
+- frontend web dang mo o 8081
+- EXPO_PUBLIC_API_URL va VITE_API_URL trung voi BACKEND_API_URL
+
+5) Seed du lieu local
+
+Chay:
+- npm run data:seed
+
+Du lieu seed san co:
+- 1 admin
+- 2 reporter
+- 8 phan anh mau
+- du loai hu hong: D00, D10, D20, D40
+- du trang thai: pending_verification, in_progress, resolved, rejected
+
+Tai khoan seed:
+- Admin
+  - Email: admin.demo@roadgis.local
+  - Mat khau: Admin@123
+
+- Reporter 1
+  - Email: reporter1.demo@roadgis.local
+  - Mat khau: Reporter@123
+
+- Reporter 2
+  - Email: reporter2.demo@roadgis.local
+  - Mat khau: Reporter@123
+
+6) Kiem tra login
+
+Reporter:
+- Mo app mobile / UI reporter
+- Dang nhap bang reporter1.demo@roadgis.local hoac reporter2.demo@roadgis.local
+- Kiem tra dang nhap thanh cong va vao duoc app
+
+Admin:
+- Mo web admin
+- Dang nhap bang admin.demo@roadgis.local
+- Kiem tra vao duoc dashboard, list, map, detail
+
+7) Kiem tra reporter flow
+
+Luong can test:
+- dang nhap
+- chup anh tu camera
+- xem preview AI
+- gui phan anh
+- xem history
+- mo detail
+
+Kiem tra ky vong:
+- report moi duoc luu vao DB that
+- history/detail hien dung du lieu vua gui
+- neu AI khong chac chan thi van gui duoc va danh dau manual review
+
+8) Kiem tra admin flow
+
+Luong can test:
+- dang nhap admin
+- xem dashboard
+- xem report list
+- xem GIS map
+- mo detail report
+- sua damage type neu AI nhan sai
+- cap nhat status
+
+Kiem tra ky vong:
+- dashboard co so lieu that
+- list va map co du report
+- cap nhat xong thi reload van giu dung trang thai
+- reporter sau do xem lai se thay ket qua cuoi cung
+
+9) Kiem tra lien thong 2 vai tro
+
+Quy trinh ngan gon:
+- Reporter gui 1 report moi
+- Admin thay report do tren dashboard/list/map
+- Admin sua type/status
+- Reporter mo lai history/detail
+
+Kiem tra ky vong:
+- Reporter thay status moi
+- Reporter thay ket qua cuoi sau hieu chinh
+- Mobile va web khong lech du lieu
+
+10) Doi soat du lieu test va cleanup
+
+Quy uoc tag du lieu:
+- seed demo: [seed-demo]
+- smoke test: [e2e-smoke]
+- local runtime test: local-runtime
+
+Cleanup du lieu smoke:
+- python services/backend-api/scripts/cleanup_tagged_data.py --scope smoke
+
+Cleanup du lieu seed:
+- python services/backend-api/scripts/cleanup_tagged_data.py --scope seed
+
+Y nghia:
+- khong lam ban du lieu van hanh
+- co the chay lai test nhieu lan ma khong lam no DB
+
+Gioi han hien tai / huong nang cap
+
+Da duoc hoan thien tot cho local run san pham:
+- auth mobile va web
+- backend API that
+- AI service that
+- upload anh that
+- GIS map va report flow that
+
+Nhung phan sau van la gioi han hien tai:
+
+1. SQLite la runtime local/dev
+- DB local hien tai la SQLite tai:
+  services/backend-api/data/road_damage_gis.db
+- Muc dich: phuc vu local run, seed, smoke test, demo, va nghiem thu kich ban
+- Buoc tiep theo de len production: PostgreSQL/PostGIS that
+
+2. PostGIS chua wiring runtime that
+- He thong da co huong truy van va cach chuan bi cho GIS/PostGIS
+- Nhung runtime DB hien tai chua phai PostgreSQL/PostGIS production chinh thuc
+- Khong nen trinh bay nhu da len production PostGIS hoan chinh
+
+3. preview_token cache con in-memory
+- preview_token va mot so co che preview hien tai con nam trong bo nho tien trinh
+- phu hop local demo / local run / may don
+- buoc tiep theo: Redis hoac persistent store co TTL neu muon scale that
+
+4. Upload storage con la local filesystem
+- Anh report dang luu local trong backend uploads
+- Chua phai cloud storage production
+- Buoc tiep theo: object storage / cloud bucket
+
+5. E2E du lieu song
+- Seed va smoke data da tach ro
+- Tuy nhien neu local DB rong hoac chua seed, E2E se khong co du lieu de quan sat
+- Luon chay seed truoc khi demo hoac test manh
+
+Tom tat nhanh 1 dong
+- Chay npm run setup:local lan dau, sau do npm run dev:all; seed bang npm run data:seed; kiem tra bang npm run check:ready; reporter login, gui report, admin xu ly, reporter xem lai ket qua cuoi.

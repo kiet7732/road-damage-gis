@@ -1,0 +1,424 @@
+.road-admin-root,
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+:root {
+  --road-font-sans: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --road-font-size-xs: 12px;
+  --road-font-size-sm: 13px;
+  --road-font-size-md: 14px;
+  --road-font-size-lg: 16px;
+  --road-font-size-xl: 18px;
+  --road-font-size-2xl: 20px;
+  --road-font-size-3xl: 26px;
+  --road-line-tight: 1.3;
+  --road-line-normal: 1.5;
+  --road-line-relaxed: 1.6;
+}
+
+html,
+body,
+#root {
+  font-family: var(--road-font-sans);
+  font-size: var(--road-font-size-md);
+  line-height: var(--road-line-normal);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow: hidden;
+}
+
+.road-admin-shell,
+.road-admin-shell button,
+.road-admin-shell input,
+.road-admin-shell textarea,
+.road-admin-shell select,
+.road-admin-shell table {
+  font-family: var(--road-font-sans);
+}
+
+.road-admin-shell h1,
+.road-admin-shell h2,
+.road-admin-shell h3,
+.road-admin-shell h4,
+.road-admin-shell h5,
+.road-admin-shell h6 {
+  letter-spacing: -0.01em;
+}
+
+.road-admin-shell p,
+.road-admin-shell td,
+.road-admin-shell th,
+.road-admin-shell label,
+.road-admin-shell input,
+.road-admin-shell textarea,
+.road-admin-shell select,
+.road-admin-shell button,
+.road-admin-shell span {
+  line-height: var(--road-line-normal);
+}
+
+.road-admin-shell {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+.road-admin-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.road-admin-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.road-admin-content--map {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.road-admin-content--map > section {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.road-admin-map-canvas .leaflet-container,
+.road-admin-map-canvas .leaflet-pane,
+.road-admin-map-canvas .leaflet-map-pane,
+.road-admin-map-canvas .leaflet-tile-pane,
+.road-admin-map-canvas .leaflet-overlay-pane {
+  background: #e5e7eb;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.road-admin-map-canvas .leaflet-tile {
+  backface-visibility: hidden;
+  image-rendering: auto;
+}
+
+.road-sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.road-sidebar-drawer {
+  width: min(86vw, 320px) !important;
+  flex: 0 0 min(86vw, 320px) !important;
+  box-shadow: 20px 0 50px rgba(15, 23, 42, 0.24);
+}
+
+.road-sidebar-backdrop {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.road-sidebar-menu-item:focus,
+.road-sidebar-menu-item:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.road-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.72fr) minmax(340px, 390px);
+  gap: 18px;
+  align-items: start;
+}
+
+.road-map-main-column {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.road-map-panel-shell {
+  min-width: 0;
+}
+
+.road-map-panel-shell--desktop,
+.road-map-panel-shell--tablet {
+  align-self: start;
+}
+
+.road-map-layout--desktop .road-map-panel-shell {
+  position: sticky;
+  top: 0;
+}
+
+.road-map-mobile-toolbar {
+  display: none;
+}
+
+.road-map-panel-backdrop {
+  display: none;
+}
+
+@media (max-width: 1280px) {
+  .road-map-layout--desktop {
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 360px);
+  }
+}
+
+.road-map-layout--tablet {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.road-map-layout--tablet .road-map-panel-shell {
+  position: relative;
+  top: auto;
+}
+
+.road-map-layout--tablet .road-map-filter-panel {
+  max-height: none !important;
+}
+
+.road-map-layout--tablet .road-admin-map-canvas {
+  min-height: 520px !important;
+}
+
+.road-map-layout--tablet .road-map-main-column {
+  gap: 12px;
+}
+
+.road-map-layout--tablet .road-map-panel-shell {
+  width: 100%;
+}
+
+.road-dashboard-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  gap: 18px;
+}
+
+.road-report-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.road-admin-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.road-admin-table-wrap table {
+  min-width: 980px;
+}
+
+.road-admin-report-filters {
+  width: 100%;
+}
+
+@media (max-width: 980px) {
+  .road-map-layout,
+  .road-dashboard-content-grid,
+  .road-report-detail-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .road-map-layout--tablet .road-map-filter-panel {
+    padding: 18px !important;
+    border-radius: 18px !important;
+  }
+
+  .road-map-layout--adaptive {
+    display: block !important;
+    position: relative;
+  }
+
+  .road-map-filter-panel {
+    max-height: none !important;
+  }
+
+  .road-admin-content {
+    padding: 16px !important;
+  }
+
+  .road-admin-table-wrap table {
+    min-width: 860px;
+  }
+
+  .road-admin-map-canvas {
+    min-height: 430px !important;
+  }
+
+  .road-admin-report-filters form,
+  .road-admin-report-filters > div {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .road-map-layout--mobile.road-map-layout--adaptive {
+    display: block !important;
+    position: relative;
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #d5dce7;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar-button {
+    min-height: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
+    background: #075dbb;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar-summary {
+    color: #344054;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+    line-height: 1.4;
+  }
+
+  .road-map-layout--mobile .road-map-panel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 118;
+    display: block;
+    border: 0;
+    background: rgba(15, 23, 42, 0.3);
+  }
+
+  .road-map-layout--mobile .road-map-panel-shell.is-compact {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 120;
+    transform: translateY(calc(100% + 24px));
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .road-map-layout--mobile .road-map-panel-shell.is-compact.is-open {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .road-map-layout--mobile .road-map-filter-panel--compact {
+    max-height: min(76vh, 680px) !important;
+    box-shadow: 0 -16px 40px rgba(15, 23, 42, 0.18);
+  }
+}
+
+@media (max-width: 720px) {
+  .road-admin-header-title {
+    max-width: 54vw;
+  }
+
+  .road-admin-header-actions {
+    gap: 8px !important;
+  }
+
+  .road-admin-user-role {
+    display: none;
+  }
+
+  .road-admin-table-panel-header {
+    align-items: flex-start !important;
+    flex-direction: column !important;
+  }
+
+  .road-admin-table-wrap table {
+    min-width: 760px;
+  }
+}
+
+@media (max-width: 520px) {
+  .road-admin-shell {
+    min-width: 320px;
+  }
+
+  .road-admin-content {
+    padding: 12px !important;
+  }
+
+  .road-map-layout,
+  .road-dashboard-content-grid {
+    gap: 12px;
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar {
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar-button {
+    min-height: 46px;
+    padding: 0 12px;
+  }
+
+  .road-map-layout--mobile .road-map-mobile-toolbar-summary {
+    max-width: 42%;
+  }
+
+  .road-map-layout--mobile .road-map-filter-panel {
+    padding: 16px !important;
+    border-radius: 16px !important;
+  }
+
+  .road-map-layout--mobile .road-map-filter-panel--compact {
+    max-height: min(80vh, 720px) !important;
+  }
+
+  .road-admin-table-wrap {
+    border-radius: 12px;
+  }
+
+  .road-admin-table-wrap table {
+    min-width: 680px;
+  }
+
+  .road-admin-map-canvas {
+    min-height: 340px !important;
+    border-radius: 16px !important;
+  }
+}
