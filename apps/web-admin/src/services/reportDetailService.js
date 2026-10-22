@@ -39,3 +39,7 @@ export async function updateAdminReportStatus(reportId, payload) {
 export async function updateAdminReportDamageType(reportId, payload) {
   return api.patch(`/admin/reports/${reportId}/damage-type`, payload);
 }
+
+export async function fetchEngineerTimeline(reportId) {
+  return api.get(`/admin/reports/${reportId}/engineer-timeline`, { suppressGlobalError: true });
+}

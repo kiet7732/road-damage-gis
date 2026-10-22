@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
-import { FiEye, FiMapPin, FiRefreshCw, FiSearch } from 'react-icons/fi';
+import { useMemo, useState } from 'react';
+import { FiDownload, FiEye, FiMapPin, FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { DAMAGE_TYPES, DAMAGE_TYPE_COLORS, UI_COLORS } from '../constants/statusColors';
-import { getReportImageUrl } from '../services/reportAdminService';
+import { exportReports, getReportImageUrl } from '../services/reportAdminService';
 import { formatAccuracy, formatCoordinate, formatDateTime } from '../utils/formatters';
 import { getEffectiveDamageType, getPrimaryConfidence } from '../utils/reportDamage';
 import EmptyState from './EmptyState';
+import ExportModal from './ExportModal';
 import Panel from './Panel';
 import { TableSkeleton } from './Skeleton';
 import StatusBadge from './StatusBadge';
@@ -45,6 +46,7 @@ export default function ReportTable({
   onViewDetail,
   manualReviewMode = false,
 }) {
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const safeItems = Array.isArray(items) ? items : [];
   const rangeLabel = useMemo(() => {
     if (total <= 0) {
@@ -105,6 +107,17 @@ export default function ReportTable({
               ))}
             </select>
 
+            <WebButton
+              variant="secondary"
+              onClick={() => setIsExportModalOpen(true)}
+              style={styles.exportButton}
+              disabled={safeItems.length === 0}
+              title="Xuất danh sách sự cố ra file Excel (.xlsx) hoặc CSV (.csv)"
+            >
+              <FiDownload size={16} aria-hidden="true" />
+              Xuất báo cáo
+            </WebButton>
+
             <WebButton variant="secondary" onClick={onResetFilters} style={styles.resetButton}>
               <FiRefreshCw size={16} aria-hidden="true" />
               Xóa lọc
@@ -145,7 +158,7 @@ export default function ReportTable({
                   <th style={styles.th}>Mã phản ánh</th>
                   <th style={styles.th}>Ảnh</th>
                   <th style={styles.th}>Loại hư hỏng</th>
-                  <th style={styles.th}>Tọa độ</th>
+                  <th style={styles.th}>Vị trí & Địa giới</th>
                   <th style={styles.th}>Trạng thái</th>
                   <th style={styles.th}>Thời điểm ghi nhận</th>
                   <th style={styles.th}>Thao tác</th>
@@ -199,12 +212,39 @@ export default function ReportTable({
 
                       <td style={styles.td}>
                         <div style={styles.coordinateCell}>
-                          <FiMapPin size={15} color={UI_COLORS.textMuted} aria-hidden="true" />
-                          <div>
-                            <div>{formatCoordinate(report?.latitude, report?.longitude)}</div>
-                            <div style={styles.muted}>
-                              Độ chính xác vị trí ±{formatAccuracy(report?.gps_accuracy)}
-                            </div>
+                          <FiMapPin size={15} color={UI_COLORS.primary} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0 }} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            {(() => {
+                              const specificAddress =
+                                report?.formatted_address ||
+                                [report?.road_name, report?.ward, report?.district].filter(Boolean).join(', ');
+                              const coords = formatCoordinate(report?.latitude, report?.longitude);
+                              const accuracy = report?.gps_accuracy ? ` (±${formatAccuracy(report.gps_accuracy)})` : '';
+
+                              if (specificAddress) {
+                                return (
+                                  <>
+                                    <div style={styles.roadNameTitle} title={specificAddress}>
+                                      {specificAddress}
+                                    </div>
+                                    <div style={styles.muted}>
+                                      {coords}{accuracy}
+                                    </div>
+                                  </>
+                                );
+                              }
+
+                              return (
+                                <>
+                                  <div style={styles.roadNameTitle} title={coords}>
+                                    {coords}
+                                  </div>
+                                  <div style={styles.muted}>
+                                    Tọa độ GPS{accuracy}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       </td>
@@ -258,6 +298,24 @@ export default function ReportTable({
           </>
         ) : null}
       </div>
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        totalCount={safeItems.length}
+        title="Xuất danh sách phản ánh hư hỏng"
+        subTitle={`Sẽ xuất ${safeItems.length} sự cố đang hiển thị trên bảng`}
+        onExport={({ format, includeImage }) => {
+          exportReports({
+            reports: safeItems,
+            format,
+            includeImage,
+            customFilename: `Danh_sach_su_co_mat_duong_${new Date().toISOString().slice(0, 10)}`,
+            title: 'DANH SÁCH PHẢN ÁNH SỰ CỐ HƯ HỎNG MẶT ĐƯỜNG',
+          });
+          setIsExportModalOpen(false);
+        }}
+      />
     </Panel>
   );
 }
@@ -288,10 +346,10 @@ const styles = {
   },
   filtersWrap: {
     minWidth: 0,
-    width: 'min(100%, 660px)',
+    width: 'min(100%, 740px)',
     display: 'grid',
-    gap: 12,
-    flex: '1 1 520px',
+    gap: 10,
+    flex: '1 1 540px',
   },
   searchForm: {
     display: 'grid',
@@ -299,12 +357,12 @@ const styles = {
     gap: 10,
   },
   searchBox: {
-    minHeight: 44,
+    minHeight: 40,
     display: 'flex',
     alignItems: 'center',
     gap: 10,
     padding: '0 14px',
-    borderRadius: 12,
+    borderRadius: 10,
     border: `1px solid ${UI_COLORS.border}`,
     background: UI_COLORS.surface,
   },
@@ -314,28 +372,38 @@ const styles = {
     outline: 'none',
     background: 'transparent',
     color: UI_COLORS.text,
-    fontSize: 14,
+    fontSize: 13,
   },
   searchButton: {
-    minWidth: 122,
+    minWidth: 110,
+    minHeight: 40,
   },
   filterRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr)) auto',
-    gap: 10,
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   select: {
-    minHeight: 44,
-    padding: '0 14px',
-    borderRadius: 12,
+    flex: '1 1 150px',
+    minWidth: 140,
+    minHeight: 38,
+    height: 38,
+    padding: '0 12px',
+    borderRadius: 10,
     border: `1px solid ${UI_COLORS.border}`,
     background: UI_COLORS.surface,
     color: UI_COLORS.text,
-    fontSize: 14,
+    fontSize: 13,
     outline: 'none',
   },
   resetButton: {
-    minWidth: 118,
+    flex: '0 0 auto',
+    minHeight: 38,
+    height: 38,
+    padding: '0 12px',
+    borderRadius: 10,
+    fontSize: 13,
   },
   tableWrap: {
     overflowX: 'auto',
@@ -491,5 +559,44 @@ const styles = {
     color: UI_COLORS.text,
     fontSize: 13,
     fontWeight: 800,
+  },
+  exportButton: {
+    flex: '0 0 auto',
+    minHeight: 38,
+    height: 38,
+    padding: '0 12px',
+    borderRadius: 10,
+    color: '#0F766E',
+    borderColor: '#99F6E4',
+    background: '#F0FDFA',
+    fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 13,
+  },
+  adminBadgeRow: {
+    marginBottom: 4,
+  },
+  adminTableBadge: {
+    display: 'inline-block',
+    fontSize: 11,
+    fontWeight: 800,
+    color: UI_COLORS.primary,
+    backgroundColor: '#EFF6FF',
+    padding: '2px 8px',
+    borderRadius: 6,
+    border: '1px solid #BFDBFE',
+    letterSpacing: '0.2px',
+  },
+  roadNameTitle: {
+    color: UI_COLORS.text,
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.35,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 280,
   },
 };

@@ -28,6 +28,30 @@ export function getDashboardErrorMessage(error) {
   return 'Không thể tải dữ liệu tổng quan.';
 }
 
-export async function fetchAdminDashboard() {
-  return api.get('/admin/dashboard');
+export async function fetchAdminDashboard(params = {}) {
+  const query = {};
+  if (params?.district) {
+    query.district = params.district;
+  }
+  if (params?.from_date) {
+    query.from_date = params.from_date;
+  }
+  if (params?.to_date) {
+    query.to_date = params.to_date;
+  }
+  return api.get('/admin/dashboard', { params: query });
+}
+
+export async function fetchAdministrativeStats(params = {}) {
+  const query = {};
+  if (params?.district) {
+    query.district = params.district;
+  }
+  if (params?.from_date) {
+    query.from_date = params.from_date;
+  }
+  if (params?.to_date) {
+    query.to_date = params.to_date;
+  }
+  return api.get('/admin/dashboard/administrative-stats', { params: query });
 }

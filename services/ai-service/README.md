@@ -19,7 +19,7 @@ AI_SERVICE_HOST=127.0.0.1
 AI_SERVICE_PORT=8001
 AI_SERVICE_URL=http://localhost:8001
 AI_API_PREFIX=/api/ai
-AI_MODEL_PATH=./models/yolo12s_800px_seed0_best.pt
+AI_MODEL_PATH=./models/best_26s_rdd_vn.pt
 AI_IMAGE_SIZE=1216
 AI_CONFIDENCE_THRESHOLD=0.05
 AI_IOU_THRESHOLD=0.45
@@ -31,7 +31,7 @@ AI_MAX_IMAGE_PIXELS=25000000
 Model mặc định đang trỏ tới file nằm trong repo:
 
 ```text
-services/ai-service/models/yolo12s_800px_seed0_best.pt
+services/ai-service/models/best_26s_rdd_vn.pt
 ```
 
 Nếu muốn đổi model sau này, chỉ cần sửa `AI_MODEL_PATH` trong `.env`. Có thể dùng:

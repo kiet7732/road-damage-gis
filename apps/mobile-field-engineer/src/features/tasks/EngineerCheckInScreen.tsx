@@ -1,70 +1,56 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import {
-  getFieldEngineerCheckinLabel,
-  getFieldEngineerUiLabel,
-} from '../../../../../packages/shared-constants/src/engineerLabels';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getFieldEngineerUiLabel } from '../../../../../packages/shared-constants/src/engineerLabels';
 import type { EngineerRootStackParamList } from '../../types/navigation';
-import { AppIcon, EmptyState } from '../../shared/mobileShared';
+import { AppIcon, EmptyState, ensureLocationReady } from '../../shared/mobileShared';
 import {
   checkInEngineerTask,
   fetchEngineerTaskDetail,
   getEngineerTaskActionBlockReason,
   type EngineerTask,
 } from '../../services/engineerReportService';
+import CheckInActionsBar from './components/CheckInActionsBar';
+import CheckInCoordinateCompareCard from './components/CheckInCoordinateCompareCard';
+import CheckInRadarCard from './components/CheckInRadarCard';
+import {
+  buildLivePositionState,
+  DISTANCE_OK_METERS,
+  MAX_GPS_ACCURACY_METERS,
+  type LivePositionState,
+} from './utils/engineerCheckInUtils';
 import { engineerColors, engineerRadius, engineerSpacing } from '../../styles/engineerTheme';
 
 type Props = NativeStackScreenProps<EngineerRootStackParamList, 'EngineerCheckIn'>;
 
-const MAX_GPS_ACCURACY_METERS = 80;
-const DISTANCE_OK_METERS = 30;
-const DISTANCE_WARNING_METERS = 100;
-
-type LivePositionState = {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  capturedAt: string;
-  distanceMeters: number;
-  quality: 'valid' | 'warning' | 'invalid';
-  warningText: string | null;
-};
-
 export default function EngineerCheckInScreen({ route, navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { reportId } = route.params;
   const [task, setTask] = useState<EngineerTask | null>(null);
   const [livePosition, setLivePosition] = useState<LivePositionState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const loadTask = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const detail = await fetchEngineerTaskDetail(reportId);
-      setTask(detail);
-      await refreshCurrentLocation(detail);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('checkinLoadError'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [reportId]);
+  const isMountedRef = useRef(true);
+  const taskRef = useRef<EngineerTask | null>(null);
 
-  useFocusEffect(
-    useCallback(() => {
-      void loadTask();
-    }, [loadTask]),
-  );
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const refreshCurrentLocation = useCallback(
-    async (taskSnapshot: EngineerTask | null = task) => {
-      if (!taskSnapshot) {
+    async (taskSnapshot?: EngineerTask | null) => {
+      const activeTask = taskSnapshot || taskRef.current;
+      if (!activeTask) {
         return;
       }
 
@@ -72,62 +58,135 @@ export default function EngineerCheckInScreen({ route, navigation }: Props) {
       setError('');
 
       try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) {
+        const readiness = await ensureLocationReady({ requestPermission: true, promptAlert: true });
+        if (!readiness.permissionGranted) {
           throw new Error('Cần cấp quyền truy cập vị trí để xác thực hiện trường.');
         }
+        if (!readiness.servicesEnabled) {
+          throw new Error('Vui lòng bật định vị GPS của thiết bị để xác thực hiện trường.');
+        }
 
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
+        const lastKnown = await Location.getLastKnownPositionAsync().catch(() => null);
+        if (lastKnown?.coords && isMountedRef.current) {
+          setLivePosition(
+            buildLivePositionState(lastKnown.coords, Boolean(lastKnown.mocked), activeTask.gps),
+          );
+        }
 
-        const accuracy = Math.round(location.coords.accuracy ?? 0);
-        const distanceMeters = calculateDistanceMeters(
-          location.coords.latitude,
-          location.coords.longitude,
-          taskSnapshot.gps.latitude,
-          taskSnapshot.gps.longitude,
-        );
+        const location = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
 
-        const quality = getCheckinQuality(distanceMeters, accuracy);
-        setLivePosition({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy,
-          capturedAt: new Date().toISOString(),
-          distanceMeters,
-          quality,
-          warningText: getCheckinWarningText(distanceMeters, accuracy),
-        });
+        if (location?.coords && isMountedRef.current) {
+          setLivePosition(
+            buildLivePositionState(location.coords, Boolean(location.mocked), activeTask.gps),
+          );
+        }
       } catch (locationError) {
+        if (!isMountedRef.current) return;
         setError(
           locationError instanceof Error
             ? locationError.message
             : 'Không lấy được vị trí hiện tại. Vui lòng thử lại.',
         );
       } finally {
-        setIsRefreshingLocation(false);
+        if (isMountedRef.current) {
+          setIsRefreshingLocation(false);
+        }
       }
     },
-    [task],
+    [],
+  );
+
+  const loadTask = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else if (!taskRef.current) {
+      setIsLoading(true);
+    }
+    setError('');
+    try {
+      const detail = await fetchEngineerTaskDetail(reportId);
+      if (!isMountedRef.current) return;
+      taskRef.current = detail;
+      setTask(detail);
+      void refreshCurrentLocation(detail);
+    } catch (loadError) {
+      if (!isMountedRef.current) return;
+      setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('checkinLoadError'));
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, [reportId, refreshCurrentLocation]);
+
+  const handleRefresh = useCallback(() => {
+    void loadTask(true);
+  }, [loadTask]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadTask();
+    }, [loadTask]),
   );
 
   const handleCheckIn = async () => {
-    if (!task || !livePosition || isSubmitting) {
+    const activeTask = task || taskRef.current;
+    if (!activeTask || !livePosition || isSubmitting) {
+      return;
+    }
+
+    if (livePosition.isMocked) {
+      const msg =
+        'Cảnh báo: Phát hiện thiết bị đang bật chế độ định vị giả lập (Mock Location). Vui lòng tắt các ứng dụng can thiệp GPS để tiếp tục tác nghiệp.';
+      setError(msg);
+      Alert.alert('Từ chối thao tác', msg);
+      return;
+    }
+
+    if (livePosition.distanceMeters > DISTANCE_OK_METERS) {
+      const msg = `Từ chối thao tác: Bạn đang cách điểm hư hỏng ${Math.round(
+        livePosition.distanceMeters,
+      )}m (vượt quá bán kính cho phép 30m). Vui lòng di chuyển đến gần vị trí hư hỏng để tiếp tục.`;
+      setError(msg);
+      Alert.alert('Từ chối thao tác', msg);
+      return;
+    }
+
+    if (livePosition.accuracy > MAX_GPS_ACCURACY_METERS) {
+      const msg = `Độ chính xác GPS hiện tại là ±${Math.round(
+        livePosition.accuracy,
+      )}m, vượt ngưỡng cho phép ±${MAX_GPS_ACCURACY_METERS}m. Vui lòng đợi tín hiệu GPS ổn định hơn.`;
+      setError(msg);
+      Alert.alert('GPS chưa đủ chính xác', msg);
+      return;
+    }
+
+    if (!activeTask.canCheckIn) {
+      const reason = checkinBlockedReason || 'Tác vụ check-in bị khóa.';
+      setError(reason);
+      Alert.alert('Không thể check-in', reason);
       return;
     }
 
     setIsSubmitting(true);
     setError('');
     try {
-      const updatedTask = await checkInEngineerTask(task.id, {
+      const updatedTask = await checkInEngineerTask(activeTask.id, {
         latitude: livePosition.latitude,
         longitude: livePosition.longitude,
         gpsAccuracy: livePosition.accuracy,
-        source: 'gps_live',
+        source: livePosition.isMocked ? 'mock_gps' : 'gps_live',
+        isMocked: livePosition.isMocked,
+        distanceMeters: livePosition.distanceMeters,
       });
       setTask(updatedTask);
-      navigation.replace('EngineerSurvey', { reportId: task.id });
+      navigation.replace('EngineerSurvey', { reportId: activeTask.id });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Không thể gửi dữ liệu check-in.');
     } finally {
@@ -135,7 +194,12 @@ export default function EngineerCheckInScreen({ route, navigation }: Props) {
     }
   };
 
-  const isCheckInAllowed = Boolean(livePosition && livePosition.quality !== 'invalid' && task?.canCheckIn);
+  const isCheckInAllowed = Boolean(
+    livePosition &&
+    !livePosition.isMocked &&
+    livePosition.quality === 'valid' &&
+    task?.canCheckIn
+  );
   const checkinBlockedReason = task ? getEngineerTaskActionBlockReason(task, 'check_in') : null;
 
   if (isLoading) {
@@ -161,190 +225,65 @@ export default function EngineerCheckInScreen({ route, navigation }: Props) {
   const radarColor =
     !livePosition
       ? engineerColors.brandAccent
-      : livePosition.quality === 'valid'
-        ? engineerColors.radarGreen
-        : livePosition.quality === 'warning'
-          ? engineerColors.safetyOrange
+      : livePosition.isMocked
+        ? engineerColors.dangerRed
+        : livePosition.quality === 'valid'
+          ? engineerColors.radarGreen
           : engineerColors.dangerRed;
 
   return (
-    <ScrollView contentContainerStyle={styles.screen}>
-      {/* Rangefinder Radar Display */}
-      <View style={styles.radarCard}>
-        <View style={styles.radarTopRow}>
-          <Text style={styles.radarTitle}>MÁY ĐO CỰ LY THỰC ĐỊA</Text>
-          <View style={[styles.radarStatusPill, { borderColor: radarColor }]}>
-            <View style={[styles.radarStatusDot, { backgroundColor: radarColor }]} />
-            <Text style={[styles.radarStatusText, { color: radarColor }]}>
-              {livePosition ? livePosition.quality.toUpperCase() : 'SEARCHING'}
-            </Text>
+    <ScrollView
+      contentContainerStyle={[
+        styles.screen,
+        { paddingBottom: Math.max(40, insets.bottom + 24) },
+      ]}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
+          colors={[engineerColors.brandAccent]}
+          tintColor={engineerColors.brandAccent}
+        />
+      }
+    >
+      {/* Mock Location Detected Alert Banner */}
+      {livePosition?.isMocked ? (
+        <View style={styles.mockLocationBanner}>
+          <View style={styles.mockLocationHeader}>
+            <AppIcon name="alert-circle" size={20} color={engineerColors.dangerRed} containerSize={22} />
+            <Text style={styles.mockLocationTitle}>PHÁT HIỆN ĐỊNH VỊ GIẢ LẬP (MOCK LOCATION)</Text>
           </View>
+          <Text style={styles.mockLocationText}>
+            Cảnh báo: Phát hiện thiết bị đang bật chế độ định vị giả lập (Mock Location). Vui lòng tắt các ứng dụng can thiệp GPS để tiếp tục tác nghiệp.
+          </Text>
         </View>
+      ) : null}
 
-        {/* Concentric Radar Rings */}
-        <View style={styles.radarCircleContainer}>
-          <View style={[styles.radarRingOuter, { borderColor: `${radarColor}33` }]}>
-            <View style={[styles.radarRingMid, { borderColor: `${radarColor}66` }]}>
-              <View style={[styles.radarRingInner, { backgroundColor: `${radarColor}15`, borderColor: radarColor }]}>
-                {isRefreshingLocation ? (
-                  <ActivityIndicator color={radarColor} size="small" />
-                ) : (
-                  <>
-                    <Text style={[styles.radarDistNum, { color: radarColor }]}>
-                      {livePosition ? Math.round(livePosition.distanceMeters) : '--'}
-                    </Text>
-                    <Text style={styles.radarDistUnit}>MÉT</Text>
-                  </>
-                )}
-              </View>
-            </View>
-          </View>
-        </View>
+      <CheckInRadarCard
+        livePosition={livePosition}
+        isRefreshingLocation={isRefreshingLocation}
+        radarColor={radarColor}
+      />
 
-        {/* Distance Readout Hint */}
-        <Text style={[styles.radarHint, { color: radarColor }]}>
-          {!livePosition
-            ? 'Đang khóa tín hiệu vệ tinh GPS...'
-            : livePosition.quality === 'valid'
-              ? '🎯 ĐÃ TRONG BÁN KÍNH HỢP LỆ (≤ 30M)'
-              : livePosition.quality === 'warning'
-                ? '⚠️ CỰ LY TỪ 30M - 100M (HÃY TIẾP CẬN GẦN HƠN)'
-                : '⛔ NGOÀI BÁN KÍNH CHO PHÉP (> 100M)'}
-        </Text>
-      </View>
-
-      {/* Target & Device Coordinates Dossier */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>ĐỐI CHIẾU TỌA ĐỘ HIỆN TRƯỜNG</Text>
-
-        <View style={styles.coordCompareRow}>
-          <View style={styles.coordBox}>
-            <Text style={styles.coordBoxLabel}>📍 TÂM ĐIỂM HƯ HỎNG</Text>
-            <Text style={styles.coordBoxValue}>
-              {task.gps.latitude.toFixed(6)}, {task.gps.longitude.toFixed(6)}
-            </Text>
-            <Text style={styles.coordSub}>Sai số lúc chụp: ±{Math.round(task.gps.accuracy || 0)}m</Text>
-          </View>
-
-          <View style={styles.coordBox}>
-            <Text style={styles.coordBoxLabel}>📱 VỊ TRÍ KỸ SƯ (GPS)</Text>
-            <Text style={[styles.coordBoxValue, { color: radarColor }]}>
-              {livePosition
-                ? `${livePosition.latitude.toFixed(6)}, ${livePosition.longitude.toFixed(6)}`
-                : 'Đang lấy...'}
-            </Text>
-            <Text style={styles.coordSub}>
-              Độ chính xác: {livePosition ? `±${Math.round(livePosition.accuracy)}m` : 'N/A'}
-            </Text>
-          </View>
-        </View>
-
-        {livePosition?.warningText ? (
-          <View
-            style={[
-              styles.noticeBox,
-              livePosition.quality === 'warning' ? styles.noticeWarning : styles.noticeDanger,
-            ]}
-          >
-            <Text style={styles.noticeTitle}>
-              {livePosition.quality === 'warning' ? 'CẢNH BÁO CỰ LY' : 'VỊ TRÍ CHƯA HỢP LỆ'}
-            </Text>
-            <Text style={styles.noticeText}>{livePosition.warningText}</Text>
-          </View>
-        ) : null}
-      </View>
+      <CheckInCoordinateCompareCard
+        task={task}
+        livePosition={livePosition}
+        radarColor={radarColor}
+      />
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      {/* Tactile Action Buttons */}
-      <View style={styles.actions}>
-        <Pressable
-          onPress={() => void refreshCurrentLocation()}
-          disabled={isRefreshingLocation || isSubmitting}
-          style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
-        >
-          <AppIcon name="refresh-outline" size={18} color={engineerColors.brandAccent} containerSize={20} />
-          <Text style={styles.refreshButtonText}>
-            {isRefreshingLocation ? 'Đang đo lại GPS...' : 'QUÉT LẠI VỊ TRÍ GPS HIỆN TẠI'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => void handleCheckIn()}
-          disabled={!isCheckInAllowed || isRefreshingLocation || isSubmitting}
-          style={({ pressed }) => [
-            styles.checkInButton,
-            !isCheckInAllowed && styles.btnDisabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={styles.checkInButtonText}>
-            {isSubmitting ? 'ĐANG GHI NHẬN CHECK-IN...' : 'XÁC THỰC CÓ MẶT TẠI HIỆN TRƯỜNG'}
-          </Text>
-        </Pressable>
-
-        {!isCheckInAllowed ? (
-          <Text style={styles.helperText}>
-            {livePosition?.quality === 'invalid'
-              ? livePosition.warningText || 'Khoảng cách quá xa để check-in.'
-              : checkinBlockedReason || 'Tác vụ check-in bị khóa.'}
-          </Text>
-        ) : (
-          <Text style={styles.helperTextValid}>
-            ✓ Đủ điều kiện xác thực. Bấm nút trên để lưu toạ độ và chuyển sang phiếu khảo sát.
-          </Text>
-        )}
-      </View>
+      <CheckInActionsBar
+        isRefreshingLocation={isRefreshingLocation}
+        isSubmitting={isSubmitting}
+        isCheckInAllowed={isCheckInAllowed}
+        livePosition={livePosition}
+        checkinBlockedReason={checkinBlockedReason}
+        onRefreshLocation={() => void refreshCurrentLocation()}
+        onCheckIn={() => void handleCheckIn()}
+      />
     </ScrollView>
   );
-}
-
-function getCheckinQuality(distanceMeters: number, gpsAccuracy: number): 'valid' | 'warning' | 'invalid' {
-  if (gpsAccuracy > MAX_GPS_ACCURACY_METERS || distanceMeters > DISTANCE_WARNING_METERS) {
-    return 'invalid';
-  }
-
-  if (distanceMeters <= DISTANCE_OK_METERS) {
-    return 'valid';
-  }
-
-  return 'warning';
-}
-
-function getCheckinWarningText(distanceMeters: number, gpsAccuracy: number): string | null {
-  if (gpsAccuracy > MAX_GPS_ACCURACY_METERS) {
-    return `Độ chính xác GPS hiện tại là ±${Math.round(gpsAccuracy)}m, vượt ngưỡng cho phép ±${MAX_GPS_ACCURACY_METERS}m.`;
-  }
-
-  if (distanceMeters > DISTANCE_WARNING_METERS) {
-    return `Bạn đang cách điểm hư hỏng ${Math.round(distanceMeters)}m, vượt ngưỡng tối đa 100m.`;
-  }
-
-  if (distanceMeters > DISTANCE_OK_METERS) {
-    return `Khoảng cách ${Math.round(distanceMeters)}m nằm trong vùng cảnh báo (30m - 100m). Bạn vẫn có thể check-in nếu có vật cản.`;
-  }
-
-  return null;
-}
-
-function calculateDistanceMeters(
-  fromLatitude: number,
-  fromLongitude: number,
-  toLatitude: number,
-  toLongitude: number,
-): number {
-  const earthRadiusMeters = 6_371_000;
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const deltaLatitude = toRadians(toLatitude - fromLatitude);
-  const deltaLongitude = toRadians(toLongitude - fromLongitude);
-  const fromLatitudeRadians = toRadians(fromLatitude);
-  const toLatitudeRadians = toRadians(toLatitude);
-
-  const haversine =
-    Math.sin(deltaLatitude / 2) ** 2 +
-    Math.cos(fromLatitudeRadians) * Math.cos(toLatitudeRadians) * Math.sin(deltaLongitude / 2) ** 2;
-
-  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
 const styles = StyleSheet.create({
@@ -367,208 +306,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  radarCard: {
-    backgroundColor: engineerColors.headerBg,
-    borderRadius: engineerRadius.lg,
-    padding: engineerSpacing.lg,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
-    gap: 12,
-  },
-  radarTopRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  radarTitle: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
-  radarStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
-    borderWidth: 1,
-  },
-  radarStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  radarStatusText: {
-    fontSize: 10,
-    fontWeight: '900',
-    fontFamily: 'monospace',
-  },
-  radarCircleContainer: {
-    marginVertical: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarRingOuter: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarRingMid: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarRingInner: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarDistNum: {
-    fontSize: 28,
-    fontWeight: '900',
-    fontFamily: 'monospace',
-    lineHeight: 32,
-  },
-  radarDistUnit: {
-    color: engineerColors.textOnDarkMuted,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  radarHint: {
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.2,
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
+  mockLocationBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
     borderRadius: engineerRadius.md,
     padding: engineerSpacing.md,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: engineerColors.borderLight,
+    gap: 6,
   },
-  sectionTitle: {
-    color: engineerColors.textNavy,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
-  coordCompareRow: {
-    gap: 8,
-  },
-  coordBox: {
-    padding: 8,
-    borderRadius: engineerRadius.xs,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 2,
-  },
-  coordBoxLabel: {
-    color: engineerColors.textMuted,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  coordBoxValue: {
-    color: engineerColors.textNavy,
-    fontSize: 12,
-    fontWeight: '900',
-    fontFamily: 'monospace',
-  },
-  coordSub: {
-    color: engineerColors.textMuted,
-    fontSize: 10,
-  },
-  noticeBox: {
-    padding: 10,
-    borderRadius: engineerRadius.xs,
-    borderWidth: 1,
-    gap: 2,
-  },
-  noticeWarning: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  noticeDanger: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FCA5A5',
-  },
-  noticeTitle: {
-    color: '#92400E',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  noticeText: {
-    color: '#78350F',
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  actions: {
-    gap: 10,
-  },
-  refreshButton: {
-    minHeight: 44,
+  mockLocationHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    borderRadius: engineerRadius.sm,
-    backgroundColor: engineerColors.headerBg,
-    borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
   },
-  refreshButtonText: {
-    color: engineerColors.brandAccent,
+  mockLocationTitle: {
+    color: '#991B1B',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  mockLocationText: {
+    color: '#B91C1C',
     fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  checkInButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: engineerRadius.sm,
-    backgroundColor: engineerColors.brandPrimary,
-  },
-  checkInButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  helperText: {
-    color: engineerColors.dangerRed,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  helperTextValid: {
-    color: engineerColors.radarGreen,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
+    lineHeight: 18,
+    fontWeight: '600',
   },
   errorText: {
     color: engineerColors.dangerRed,

@@ -33,4 +33,6 @@ export type RoadDamageMapViewProps = {
   getMarkerTone?: (report: Report) => RoadDamageMarkerTone | null | undefined;
   getPopupStatusLabel?: (report: Report) => string | null | undefined;
   popupActionLabel?: string;
+  customMapStyle?: any[];
+  userInterfaceStyle?: 'light' | 'dark';
 };

@@ -1,47 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiClientError } from '../../../../../packages/api-client/src';
-import { DAMAGE_TYPES, UI_COLORS } from '../../constants/statusColors';
-import { formatCoordinate, formatDateTime, getStatusLabel } from '../../utils/formatters';
-import {
-  getAiPredictedDamageType,
-  getAiPredictedDamageTypeLabel,
-  getEffectiveDamageType,
-  getEffectiveDamageTypeLabel,
-} from '../../utils/reportDamage';
+import { UI_COLORS } from '../../constants/statusColors';
+import { formatDateTime, getStatusLabel } from '../../utils/formatters';
+import { getEffectiveDamageType } from '../../utils/reportDamage';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import Panel from '../../components/Panel';
 import ReportImageInspector from '../../components/ReportImageInspector';
 import ReportMiniMap from '../../components/ReportMiniMap';
 import Skeleton from '../../components/Skeleton';
-import StatusBadge from '../../components/StatusBadge';
 import { useToast } from '../../components/ToastProvider';
 import WebButton from '../../components/WebButton';
 import useAsyncData from '../../hooks/useAsyncData';
 import {
   fetchAdminReportDetail,
+  fetchEngineerTimeline,
   getReportDetailErrorMessage,
   updateAdminReportDamageType,
   updateAdminReportStatus,
 } from '../../services/reportDetailService';
-
-const STATUS_OPTIONS = [
-  { value: 'pending', label: 'Chờ xác minh' },
-  { value: 'processing', label: 'Đang xử lý' },
-  { value: 'repaired', label: 'Đã sửa chữa' },
-  { value: 'rejected', label: 'Từ chối' },
-];
-
-function getLocationSourceLabel(source) {
-  const normalized = String(source || '').trim().toLowerCase();
-
-  if (normalized === 'map_selected') {
-    return 'Người dùng chọn lại vị trí trên bản đồ';
-  }
-
-  return 'Vị trí lấy tại nơi chụp ảnh';
-}
+import ReportInfoCard from '../../components/report-detail/ReportInfoCard';
+import ReportSurveyEvidenceCard from '../../components/report-detail/ReportSurveyEvidenceCard';
+import ReportStatusActionCard from '../../components/report-detail/ReportStatusActionCard';
+import ReportTimelineCard from '../../components/report-detail/ReportTimelineCard';
+import ReportPhotoLightboxModal from '../../components/report-detail/ReportPhotoLightboxModal';
 
 export default function ReportDetailPage() {
   const { reportId } = useParams();
@@ -53,6 +36,7 @@ export default function ReportDetailPage() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [damageTypeDraft, setDamageTypeDraft] = useState('D40');
   const [isUpdatingDamageType, setIsUpdatingDamageType] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
 
   const {
     data: report,
@@ -68,6 +52,22 @@ export default function ReportDetailPage() {
     }
 
     return fetchAdminReportDetail(reportId);
+  }, [reportId]);
+
+  const {
+    data: timelineItemsData,
+  } = useAsyncData(async () => {
+    if (!reportId) {
+      return [];
+    }
+
+    try {
+      const resp = await fetchEngineerTimeline(reportId);
+      return Array.isArray(resp?.items) ? resp.items : [];
+    } catch (timelineError) {
+      console.warn('Không thể tải dòng thời gian kiểm toán:', timelineError);
+      return [];
+    }
   }, [reportId]);
 
   useEffect(() => {
@@ -93,20 +93,89 @@ export default function ReportDetailPage() {
     const items = [
       {
         key: 'created',
-        title: 'Tiếp nhận phản ánh',
+        title: 'Tiếp nhận phản ánh từ Công dân',
         description: `Phản ánh được ghi nhận vào lúc ${formatDateTime(activeReport.created_at)}.`,
       },
       {
         key: 'ai',
-        title: 'Kết quả nhận dạng',
+        title: 'Kết quả nhận dạng AI ban đầu',
         description: activeReport?.ai_result?.message || 'Hệ thống chưa có kết quả nhận dạng.',
       },
-      {
-        key: 'updated',
-        title: 'Cập nhật gần nhất',
-        description: `Trạng thái hiện tại là "${getStatusLabel(activeReport.status)}", cập nhật lúc ${formatDateTime(activeReport.updated_at)}.`,
-      },
     ];
+
+    if (Array.isArray(timelineItemsData) && timelineItemsData.length > 0) {
+      const sortedEvents = [...timelineItemsData].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      for (const event of sortedEvents) {
+        const timeStr = formatDateTime(event.created_at);
+        const engineerName = event.engineer_name || 'Kỹ sư hiện trường';
+
+        if (event.action_type === 'claim') {
+          items.push({
+            key: `action-${event.id}`,
+            title: 'Kỹ sư tiếp nhận nhiệm vụ',
+            description: `${engineerName} đã tiếp nhận sự cố vào lúc ${timeStr}. Khóa quyền kiểm tra trong 60 phút.`,
+          });
+        } else if (event.action_type === 'check_in') {
+          const dist = event.action_payload_json?.distance_meters != null
+            ? `${Number(event.action_payload_json.distance_meters).toFixed(2)}m`
+            : '≤ 30m';
+          const acc = event.action_payload_json?.gps_accuracy != null
+            ? `±${Math.round(event.action_payload_json.gps_accuracy)}m`
+            : 'chuẩn';
+          items.push({
+            key: `action-${event.id}`,
+            title: '✓ Xác thực có mặt tại hiện trường (Check-in hợp lệ)',
+            description: `${engineerName} đã check-in thành công tại hiện trường (Cự ly: ${dist} ≤ 30m, GPS ${acc}) vào lúc ${timeStr}.`,
+            isSuccess: true,
+          });
+        } else if (event.action_type === 'rejected_check_in') {
+          const reason = event.action_payload_json?.rejection_reason === 'mock_location_detected'
+            ? 'Phát hiện ứng dụng định vị giả lập (Mock Location)'
+            : 'Cự ly check-in vượt quá bán kính 30m';
+          items.push({
+            key: `action-${event.id}`,
+            title: '⚠️ Từ chối check-in (Cảnh báo gian lận vị trí)',
+            description: `Hệ thống phát hiện vi phạm: ${reason} vào lúc ${timeStr}. Thao tác bị khóa cứng.`,
+            isWarning: true,
+          });
+        } else if (event.action_type === 'upload_attachment') {
+          items.push({
+            key: `action-${event.id}`,
+            title: 'Chụp ảnh khảo sát thực địa',
+            description: `${engineerName} đã tải lên ảnh hiện trường có đóng dấu Watermark tọa độ vào lúc ${timeStr}.`,
+          });
+        } else if (event.action_type === 'submit_survey') {
+          const payload = event.action_payload_json || {};
+          items.push({
+            key: `action-${event.id}`,
+            title: '✓ Hoàn thành nộp phiếu khảo sát kỹ thuật',
+            description: `${engineerName} đã nộp phiếu khảo sát: Loại [${payload.verified_damage_type || 'N/A'}], Mức độ [${payload.severity || 'N/A'}], Mức ưu tiên [${payload.priority || 'N/A'}] vào lúc ${timeStr}.`,
+            isSuccess: true,
+          });
+        } else if (event.action_type === 'admin_assign') {
+          items.push({
+            key: `action-${event.id}`,
+            title: 'Cán bộ điều phối phân công',
+            description: `Cán bộ đã phân công kỹ sư xử lý vào lúc ${timeStr}.`,
+          });
+        } else if (event.action_type === 'admin_revoke') {
+          items.push({
+            key: `action-${event.id}`,
+            title: 'Thu hồi quyền kiểm tra sự cố',
+            description: `Cán bộ đã thu hồi quyền kiểm tra sự cố vào lúc ${timeStr}.`,
+          });
+        }
+      }
+    }
+
+    items.push({
+      key: 'updated',
+      title: 'Trạng thái hiện tại',
+      description: `Trạng thái xử lý là "${getStatusLabel(activeReport.status)}", cập nhật lúc ${formatDateTime(activeReport.updated_at)}.`,
+    });
 
     if (activeReport.admin_note) {
       items.push({
@@ -117,7 +186,7 @@ export default function ReportDetailPage() {
     }
 
     return items;
-  }, [activeReport]);
+  }, [activeReport, timelineItemsData]);
 
   if (isLoading) {
     return (
@@ -253,41 +322,12 @@ export default function ReportDetailPage() {
             <ReportImageInspector report={activeReport} />
           </Panel>
 
-          <Panel title="Thông tin báo cáo">
-            <div style={styles.infoGrid}>
-              <DetailItem label="Mã phản ánh" value={activeReport.id} />
-              <DetailItem label="Người gửi" value={activeReport.user_id || 'Ẩn danh / chưa định danh'} />
-              <DetailItem label="Thời điểm ghi nhận" value={formatDateTime(activeReport.created_at)} />
-              <DetailItem label="Trạng thái hiện tại" value={<StatusBadge status={activeReport.status} size="sm" />} />
-              <DetailItem label="Trạng thái nhận dạng" value={activeReport.ai_status || 'N/A'} />
-              <DetailItem label="Số hư hỏng phát hiện" value={String(activeReport?.ai_result?.detections_count ?? 0)} />
-              <DetailItem
-                label="Loại hư hỏng sử dụng"
-                value={`${getEffectiveDamageType(activeReport)} - ${getEffectiveDamageTypeLabel(activeReport)}`}
-              />
-              <DetailItem
-                label="Tọa độ vị trí"
-                value={formatCoordinate(activeReport.latitude, activeReport.longitude)}
-              />
-              <DetailItem
-                label="Độ chính xác vị trí"
-                value={activeReport.gps_accuracy ? `±${Math.round(activeReport.gps_accuracy)}m` : 'N/A'}
-              />
-              <DetailItem
-                label="Nguồn vị trí"
-                value={getLocationSourceLabel(activeReport.location_source)}
-              />
-              <DetailItem
-                label="Thời điểm ghi nhận vị trí"
-                value={activeReport.location_recorded_at ? formatDateTime(activeReport.location_recorded_at) : 'N/A'}
-              />
-            </div>
+          <ReportInfoCard report={activeReport} />
 
-            <div style={styles.noteBox}>
-              <strong style={styles.noteTitle}>Ghi chú thực địa</strong>
-              <div style={styles.noteContent}>{activeReport.note || 'Người gửi không để lại ghi chú.'}</div>
-            </div>
-          </Panel>
+          <ReportSurveyEvidenceCard
+            report={activeReport}
+            onSelectPhoto={setSelectedPhoto}
+          />
         </div>
 
         <div style={styles.sideColumn}>
@@ -295,91 +335,21 @@ export default function ReportDetailPage() {
             <ReportMiniMap latitude={activeReport.latitude} longitude={activeReport.longitude} />
           </Panel>
 
-          <Panel title="Cập nhật trạng thái xử lý">
-            <div style={styles.formStack}>
-              <label style={styles.formLabel}>
-                <span style={styles.formLabelText}>Trạng thái mới</span>
-                <select
-                  value={statusDraft}
-                  onChange={(event) => setStatusDraft(event.target.value)}
-                  disabled={isUpdatingStatus}
-                  style={styles.select}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          <ReportStatusActionCard
+            report={activeReport}
+            statusDraft={statusDraft}
+            setStatusDraft={setStatusDraft}
+            adminNoteDraft={adminNoteDraft}
+            setAdminNoteDraft={setAdminNoteDraft}
+            isUpdatingStatus={isUpdatingStatus}
+            onUpdateStatus={handleUpdateStatus}
+            damageTypeDraft={damageTypeDraft}
+            setDamageTypeDraft={setDamageTypeDraft}
+            isUpdatingDamageType={isUpdatingDamageType}
+            onUpdateDamageType={handleUpdateDamageType}
+          />
 
-              <label style={styles.formLabel}>
-                <span style={styles.formLabelText}>Ghi chú xử lý</span>
-                <textarea
-                  value={adminNoteDraft}
-                  onChange={(event) => setAdminNoteDraft(event.target.value)}
-                  disabled={isUpdatingStatus}
-                  rows={4}
-                  placeholder="Nhập nội dung xác minh hoặc tiến độ xử lý..."
-                  style={styles.textarea}
-                />
-              </label>
-
-              <WebButton onClick={handleUpdateStatus} disabled={isUpdatingStatus}>
-                {isUpdatingStatus ? 'Đang cập nhật...' : 'Lưu trạng thái'}
-              </WebButton>
-            </div>
-          </Panel>
-
-          <Panel title="Chỉnh sửa loại hư hỏng sau xác minh">
-            <div style={styles.formStack}>
-              <div style={styles.aiInfoBox}>
-                <div style={styles.aiInfoTitle}>Kết quả nhận dạng ban đầu</div>
-                <div style={styles.aiInfoValue}>
-                  {getAiPredictedDamageType(activeReport)} - {getAiPredictedDamageTypeLabel(activeReport)}
-                </div>
-                <div style={styles.aiInfoMeta}>
-                  {activeReport.is_ai_overridden
-                    ? 'Đã được cán bộ hiệu chỉnh.'
-                    : 'Chưa có hiệu chỉnh thủ công.'}
-                </div>
-              </div>
-
-              <label style={styles.formLabel}>
-                <span style={styles.formLabelText}>Loại hư hỏng xác minh</span>
-                <select
-                  value={damageTypeDraft}
-                  onChange={(event) => setDamageTypeDraft(event.target.value)}
-                  disabled={isUpdatingDamageType}
-                  style={styles.select}
-                >
-                  {Object.entries(DAMAGE_TYPES).map(([key, value]) => (
-                    <option key={key} value={key}>
-                      {key} - {value.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <WebButton onClick={handleUpdateDamageType} disabled={isUpdatingDamageType}>
-                {isUpdatingDamageType ? 'Đang lưu...' : 'Lưu loại hư hỏng'}
-              </WebButton>
-            </div>
-          </Panel>
-
-          <Panel title="Lịch sử cập nhật">
-            <div style={styles.timeline}>
-              {historyItems.map((item) => (
-                <div key={item.key} style={styles.timelineItem}>
-                  <div style={styles.timelineDot} />
-                  <div>
-                    <div style={styles.timelineTitle}>{item.title}</div>
-                    <div style={styles.timelineDescription}>{item.description}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
+          <ReportTimelineCard historyItems={historyItems} />
 
           <Panel title="Thao tác nhanh">
             <div style={styles.actionStack}>
@@ -391,16 +361,12 @@ export default function ReportDetailPage() {
           </Panel>
         </div>
       </div>
-    </section>
-  );
-}
 
-function DetailItem({ label, value }) {
-  return (
-    <div style={styles.detailCard}>
-      <div style={styles.detailLabel}>{label}</div>
-      <div style={styles.detailValue}>{value}</div>
-    </div>
+      <ReportPhotoLightboxModal
+        selectedPhoto={selectedPhoto}
+        onClose={() => setSelectedPhoto(null)}
+      />
+    </section>
   );
 }
 
@@ -437,141 +403,6 @@ const styles = {
   loadingStack: {
     display: 'grid',
     gap: 14,
-  },
-  infoGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 12,
-  },
-  detailCard: {
-    display: 'grid',
-    gap: 6,
-    padding: 14,
-    borderRadius: 14,
-    background: UI_COLORS.surfaceMuted,
-    border: `1px solid ${UI_COLORS.border}`,
-  },
-  detailLabel: {
-    color: UI_COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: 800,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  detailValue: {
-    color: UI_COLORS.text,
-    fontSize: 14,
-    fontWeight: 800,
-    lineHeight: 1.45,
-  },
-  noteBox: {
-    marginTop: 16,
-    display: 'grid',
-    gap: 10,
-    padding: 16,
-    borderRadius: 16,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surfaceMuted,
-  },
-  noteTitle: {
-    color: UI_COLORS.text,
-    fontSize: 14,
-    fontWeight: 900,
-  },
-  noteContent: {
-    color: UI_COLORS.textMuted,
-    fontSize: 14,
-    lineHeight: 1.6,
-  },
-  aiInfoBox: {
-    display: 'grid',
-    gap: 6,
-    padding: 14,
-    borderRadius: 14,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surfaceMuted,
-  },
-  aiInfoTitle: {
-    color: UI_COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: 800,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  aiInfoValue: {
-    color: UI_COLORS.text,
-    fontSize: 15,
-    fontWeight: 900,
-  },
-  aiInfoMeta: {
-    color: UI_COLORS.textMuted,
-    fontSize: 13,
-    lineHeight: 1.5,
-  },
-  formStack: {
-    display: 'grid',
-    gap: 14,
-  },
-  formLabel: {
-    display: 'grid',
-    gap: 8,
-  },
-  formLabelText: {
-    color: UI_COLORS.text,
-    fontSize: 13,
-    fontWeight: 900,
-  },
-  select: {
-    minHeight: 44,
-    padding: '0 14px',
-    borderRadius: 12,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    fontSize: 14,
-    outline: 'none',
-  },
-  textarea: {
-    width: '100%',
-    minHeight: 110,
-    padding: 12,
-    borderRadius: 12,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    fontSize: 14,
-    lineHeight: 1.5,
-    resize: 'vertical',
-    boxSizing: 'border-box',
-    outline: 'none',
-  },
-  timeline: {
-    display: 'grid',
-    gap: 14,
-  },
-  timelineItem: {
-    display: 'grid',
-    gridTemplateColumns: '14px minmax(0, 1fr)',
-    gap: 12,
-    alignItems: 'start',
-  },
-  timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 999,
-    marginTop: 5,
-    background: UI_COLORS.primary,
-  },
-  timelineTitle: {
-    color: UI_COLORS.text,
-    fontSize: 14,
-    fontWeight: 900,
-  },
-  timelineDescription: {
-    marginTop: 4,
-    color: UI_COLORS.textMuted,
-    fontSize: 13,
-    lineHeight: 1.55,
   },
   actionStack: {
     display: 'grid',

@@ -5,15 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppIcon from '../../components/AppIcon';
-import AppButton from '../../components/AppButton';
 import BlockingOverlay from '../../components/BlockingOverlay';
-import InfoCard from '../../components/InfoCard';
-import StatusBadge from '../../components/StatusBadge';
-import { colors, damageTypeTheme, iconSize, radius, spacing, touchTarget, type DamageTypeCode } from '../../constants/theme';
+import { colors, iconSize, radius, spacing, touchTarget } from '../../constants/theme';
 import {
   DEFAULT_NEARBY_REPORT_RADIUS_METERS,
   fetchNearbyUnrepairedReports,
-  getDamageTypeDisplayLabel,
   getSubmitReportErrorMessage,
   MAX_GPS_ACCURACY_METERS,
   previewRoadDamageDetection,
@@ -21,30 +17,16 @@ import {
   submitRoadDamageReport,
 } from '../../services/reportService';
 import type { RootStackParamList } from '../../types/navigation';
-import type { DamageDetection, Report, ReportAiResult } from '../../types/roadDamage';
+import type { Report, ReportAiResult } from '../../types/roadDamage';
 import CapturedPhotoPreview from './components/CapturedPhotoPreview';
+import ConfirmAiPreviewCard from './components/ConfirmAiPreviewCard';
+import ConfirmNearbyReportsCard from './components/ConfirmNearbyReportsCard';
+import ConfirmReportFooter from './components/ConfirmReportFooter';
 import GpsLocationCard from './components/GpsLocationCard';
 import ReportNoteCard from './components/ReportNoteCard';
+import { buildPredictionLabel, getDetectionDamageType, isValidGps } from './utils/confirmReportUtils';
 
 type ConfirmReportScreenProps = NativeStackScreenProps<RootStackParamList, 'ConfirmReportScreen'>;
-
-function isValidGps(gps: RootStackParamList['ConfirmReportScreen']['gps'] | undefined) {
-  return (
-    typeof gps?.latitude === 'number' &&
-    Number.isFinite(gps.latitude) &&
-    gps.latitude >= -90 &&
-    gps.latitude <= 90 &&
-    typeof gps?.longitude === 'number' &&
-    Number.isFinite(gps.longitude) &&
-    gps.longitude >= -180 &&
-    gps.longitude <= 180 &&
-    !(gps.latitude === 0 && gps.longitude === 0) &&
-    typeof gps?.accuracy === 'number' &&
-    Number.isFinite(gps.accuracy) &&
-    gps.accuracy > 0 &&
-    gps.accuracy <= MAX_GPS_ACCURACY_METERS
-  );
-}
 
 export default function ConfirmReportScreen({ navigation, route }: ConfirmReportScreenProps) {
   const [note, setNote] = useState('');
@@ -68,7 +50,7 @@ export default function ConfirmReportScreen({ navigation, route }: ConfirmReport
   const initialPreviewError = route.params?.initialPreviewError ?? '';
   const initialPreviewPhotoUri = route.params?.initialPreviewPhotoUri ?? null;
   const compact = width < 360 || height < 680;
-  const previewHeight = Math.max(150, Math.min(compact ? 180 : 220, Math.round(width * 0.54)));
+  const previewHeight = Math.max(220, Math.min(compact ? 240 : 320, Math.round(width * 0.82)));
   const footerPaddingBottom = Platform.OS === 'ios'
     ? Math.max(insets.bottom, spacing.xs)
     : spacing.xs;
@@ -114,7 +96,6 @@ export default function ConfirmReportScreen({ navigation, route }: ConfirmReport
 
     return () => {
       unsubscribeBeforeRemove();
-      deleteTempPhotoIfNeeded();
     };
   }, [navigation, photoUri]);
 
@@ -431,112 +412,21 @@ export default function ConfirmReportScreen({ navigation, route }: ConfirmReport
             />
           ) : null}
 
-          <InfoCard style={styles.compactInfoCard}>
-            <View style={styles.aiHeader}>
-              <View style={styles.sectionTitleWrap}>
-                <Text selectable style={styles.aiTitle}>
-                  Kết quả nhận dạng
-                </Text>
-                <Text selectable style={styles.sectionSubtitle}>
-                  Gợi ý hư hỏng từ ảnh.
-                </Text>
-              </View>
-              {predictedDamageType ? (
-                <View
-                  style={[
-                    styles.damageTypeChip,
-                    {
-                      backgroundColor: damageTypeTheme[predictedDamageType].backgroundColor,
-                      borderColor: damageTypeTheme[predictedDamageType].color,
-                    },
-                  ]}
-                >
-                  <Text
-                    selectable
-                    style={[
-                      styles.damageTypeChipText,
-                      { color: damageTypeTheme[predictedDamageType].color },
-                    ]}
-                  >
-                    {damageTypeTheme[predictedDamageType].label}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
+          <ConfirmAiPreviewCard
+            predictedDamageType={predictedDamageType}
+            isPreviewing={isPreviewing}
+            previewError={previewError}
+            previewResult={previewResult}
+            predictionLabel={predictionLabel}
+          />
 
-            {isPreviewing ? (
-              <Text selectable numberOfLines={2} style={styles.aiDescription}>
-                Hệ thống đang phân tích ảnh để gợi ý loại hư hỏng...
-              </Text>
-            ) : null}
-
-            {!isPreviewing && previewError ? (
-              <Text selectable style={styles.aiError}>
-                {previewError}
-              </Text>
-            ) : null}
-
-            {!isPreviewing && !previewError && previewResult ? (
-              <>
-                <Text selectable style={[styles.aiPrimaryText, !previewResult.success && styles.aiPrimaryWarningText]}>
-                  {predictionLabel || 'Chưa xác định được loại hư hỏng.'}
-                </Text>
-                <Text selectable style={styles.aiDescription}>
-                  {previewResult.message}
-                </Text>
-              </>
-            ) : null}
-          </InfoCard>
-
-          <InfoCard style={styles.compactInfoCard}>
-            <View style={styles.sectionTitleWrap}>
-              <Text selectable style={styles.aiTitle}>
-                Kiểm tra phản ánh gần đó
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.nearbySummaryCard,
-                hasNearbyDuplicateWarning ? styles.nearbySummaryWarning : styles.nearbySummaryNeutral,
-              ]}
-            >
-              <AppIcon
-                name={hasNearbyDuplicateWarning ? 'alert-circle-outline' : 'checkmark-circle-outline'}
-                size={iconSize.inline}
-                color={hasNearbyDuplicateWarning ? '#B45309' : colors.success}
-                containerSize={24}
-              />
-              <Text
-                selectable
-                numberOfLines={2}
-                style={[
-                  styles.nearbySummaryText,
-                  isCheckingNearbyReports && styles.aiDescription,
-                  nearbyReportsError && styles.aiError,
-                ]}
-              >
-                {nearbySummaryText}
-              </Text>
-            </View>
-
-            {!isCheckingNearbyReports && !nearbyReportsError && hasNearbyDuplicateWarning ? (
-              <View style={styles.duplicateBox}>
-                <View style={styles.duplicateList}>
-                  {nearbyReportsPreview.map((report) => (
-                    <View key={report.id} style={styles.duplicateItem}>
-                      <Text selectable numberOfLines={2} ellipsizeMode="tail" style={styles.duplicateItemTitle}>
-                        {buildNearbyReportPreviewTitle(report)}
-                      </Text>
-                      <Text selectable numberOfLines={1} ellipsizeMode="tail" style={styles.duplicateItemMeta}>
-                        {report.createdAt} • {formatStatusLabel(report.status)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-          </InfoCard>
+          <ConfirmNearbyReportsCard
+            hasNearbyDuplicateWarning={hasNearbyDuplicateWarning}
+            nearbySummaryText={nearbySummaryText}
+            isCheckingNearbyReports={isCheckingNearbyReports}
+            nearbyReportsError={nearbyReportsError}
+            nearbyReportsPreview={nearbyReportsPreview}
+          />
 
           {validationMessage ? (
             <View style={styles.validationBox}>
@@ -552,119 +442,20 @@ export default function ConfirmReportScreen({ navigation, route }: ConfirmReport
           </View>
         </ScrollView>
 
-        <View
-          onLayout={(event) => {
-            const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-            setFooterHeight((currentHeight) => (currentHeight !== nextHeight ? nextHeight : currentHeight));
-          }}
-          style={[styles.footer, { paddingBottom: footerPaddingBottom }]}
-        >
-          {isSubmitting ? (
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${Math.max(uploadProgress, 8)}%` }]} />
-            </View>
-          ) : null}
-          <View style={styles.footerRow}>
-            <AppButton
-              label="Hủy"
-              variant="outline"
-              accessibilityLabel="Hủy phản ánh hiện tại"
-              onPress={handleCancel}
-              disabled={isSubmitting}
-              style={styles.secondaryAction}
-            />
-            <AppButton
-              label="Chụp lại"
-              variant="outline"
-              accessibilityLabel="Quay lại camera để chụp lại"
-              icon={<AppIcon name="camera" size={iconSize.inline} color={colors.primaryDark} containerSize={22} />}
-              onPress={handleRetake}
-              disabled={isSubmitting}
-              style={styles.secondaryAction}
-            />
-          </View>
-          <AppButton
-            label={isSubmitting ? `Đang gửi... ${uploadProgress}%` : 'Xác nhận gửi'}
-            accessibilityLabel="Xác nhận gửi phản ánh"
-            icon={
-              <AppIcon name="send" size={iconSize.inline} color={canSubmit ? colors.surface : '#667085'} containerSize={22} />
-            }
-            onPress={handleSubmit}
-            disabled={!canSubmit}
-          />
-        </View>
+        <ConfirmReportFooter
+          isSubmitting={isSubmitting}
+          uploadProgress={uploadProgress}
+          canSubmit={canSubmit}
+          footerPaddingBottom={footerPaddingBottom}
+          onLayoutFooterHeight={setFooterHeight}
+          onCancel={handleCancel}
+          onRetake={handleRetake}
+          onSubmit={handleSubmit}
+        />
       </KeyboardAvoidingView>
       <BlockingOverlay visible={isSubmitting} message={`Đang gửi phản ánh... ${uploadProgress}%`} />
     </SafeAreaView>
   );
-}
-
-function getDetectionDamageType(detection: DamageDetection | null): DamageTypeCode | null {
-  if (!detection?.damageType) {
-    return null;
-  }
-
-  const normalized = detection.damageType.trim().toUpperCase();
-  return normalized in damageTypeTheme ? (normalized as DamageTypeCode) : null;
-}
-
-function buildPredictionLabel(
-  previewResult: ReportAiResult | null,
-  detection: DamageDetection | null,
-): string {
-  if (!previewResult) {
-    return '';
-  }
-
-  if (!previewResult.success || !detection) {
-    return 'Hệ thống chưa xác định được loại hư hỏng từ ảnh này.';
-  }
-
-  const damageType = getDetectionDamageType(detection);
-  const damageLabel = damageType
-    ? damageTypeTheme[damageType].label
-    : detection.className || detection.damageType;
-  const confidencePercent = Math.round((detection.confidence || 0) * 100);
-
-  return `${damageLabel} • độ tin cậy ${confidencePercent}%`;
-}
-
-function formatStatusLabel(status: string) {
-  switch (status) {
-    case 'pending':
-      return 'Chờ xác minh';
-    case 'processing':
-      return 'Đang xử lý';
-    case 'repaired':
-      return 'Đã sửa chữa';
-    case 'rejected':
-      return 'Từ chối';
-    default:
-      return status;
-  }
-}
-
-function buildNearbyReportPreviewTitle(report: Report): string {
-  const damageLabel = getDamageTypeDisplayLabel(report.type) ?? report.type;
-  const rawTitle = (report.title ?? '').trim();
-  const titleWithoutPrefix = rawTitle.replace(new RegExp(`^${damageLabel}\\s*-\\s*`, 'i'), '').trim();
-  const normalizedTitle = titleWithoutPrefix.replace(/\s+/g, ' ');
-
-  if (!normalizedTitle) {
-    return damageLabel;
-  }
-
-  const shortTitle = normalizedTitle
-    .replace(/^\[seed-demo\]\s*/i, '')
-    .replace(/^ghi nhận tại hiện trường$/i, '')
-    .replace(/^vị trí /i, '')
-    .trim();
-
-  if (!shortTitle) {
-    return damageLabel;
-  }
-
-  return shortTitle;
 }
 
 const styles = StyleSheet.create({
@@ -678,10 +469,6 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingTop: 2,
-    gap: spacing.xs,
-  },
-  compactInfoCard: {
-    padding: spacing.md,
     gap: spacing.xs,
   },
   validationBox: {
@@ -702,139 +489,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     lineHeight: 19,
-  },
-  aiHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  sectionTitleWrap: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  aiTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  sectionSubtitle: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  damageTypeChip: {
-    minHeight: 30,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  damageTypeChipText: {
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  aiPrimaryText: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
-  },
-  aiPrimaryWarningText: {
-    color: colors.danger,
-  },
-  aiDescription: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  aiError: {
-    color: colors.danger,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  nearbySummaryCard: {
-    minHeight: touchTarget.min,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  nearbySummaryNeutral: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  nearbySummaryWarning: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#F7C78B',
-  },
-  nearbySummaryText: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '800',
-    lineHeight: 16,
-  },
-  duplicateBox: {
-    gap: 6,
-  },
-  duplicateList: {
-    gap: 6,
-  },
-  duplicateItem: {
-    gap: 2,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceMuted,
-  },
-  duplicateItemTitle: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontWeight: '800',
-    lineHeight: 15,
-  },
-  duplicateItemMeta: {
-    color: colors.textMuted,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '700',
-    flexShrink: 1,
-  },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    gap: 4,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 4,
-    backgroundColor: colors.background,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  progressTrack: {
-    height: 8,
-    overflow: 'hidden',
-    borderRadius: radius.full,
-    backgroundColor: colors.border,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  secondaryAction: {
-    flex: 1,
   },
   noteCardWrap: {
     marginTop: 2,

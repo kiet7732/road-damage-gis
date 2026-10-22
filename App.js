@@ -8,39 +8,63 @@
  * - Ghi nhớ phiên làm việc (Remember Token) an toàn qua expo-secure-store.
  */
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import MobileReporterApp from './apps/mobile-reporter/App';
 import MobileFieldEngineerApp from './apps/mobile-field-engineer/App';
 import {
   bootstrapMobileSession,
+  clearMobileAuthSession,
   subscribeAuthState,
 } from './packages/mobile-shared/src/authService';
+import { configureMobileApiClient } from './packages/mobile-shared/src/configureApiClient';
+import { isAdminRole, resolveAppRole } from './packages/mobile-shared/src/roleRouting';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [initError, setInitError] = useState('');
 
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Đăng ký lắng nghe thay đổi trạng thái đăng nhập (Login/Logout/Token refresh)
+    // 1. Cấu hình apiClient ngay lập tức khi App khởi động
+    configureMobileApiClient(() => {
+      if (isMounted) {
+        setCurrentUser(null);
+      }
+    });
+
+    // 2. Đăng ký lắng nghe thay đổi trạng thái đăng nhập (Login/Logout/Token refresh)
     const unsubscribe = subscribeAuthState((user) => {
       if (isMounted) {
-        setCurrentUser(user);
+        if (user && isAdminRole(user.role)) {
+          void clearMobileAuthSession();
+          setCurrentUser(null);
+        } else {
+          setCurrentUser(user);
+        }
+        setInitError('');
         setIsInitializing(false);
       }
     });
 
-    // 2. Khởi tạo và khôi phục phiên làm việc đã lưu trong SecureStore
+    // 3. Khởi tạo và khôi phục phiên làm việc đã lưu trong SecureStore
     const initSession = async () => {
       try {
+        setInitError('');
         const result = await bootstrapMobileSession();
-        if (isMounted) {
-          if (result.status === 'authenticated' && result.user) {
-            setCurrentUser(result.user);
-          } else {
-            setCurrentUser(null);
+        if (!isMounted) return;
+
+        if (result.status === 'authenticated' && result.user && !isAdminRole(result.user.role)) {
+          setCurrentUser(result.user);
+        } else if (result.status === 'retry_required') {
+          // Lỗi mạng khi mở app -> Không vội xóa token, cho phép người dùng bấm Thử lại
+          setInitError(result.message);
+        } else {
+          if (result.user && isAdminRole(result.user.role)) {
+            await clearMobileAuthSession();
           }
+          setCurrentUser(null);
         }
       } catch {
         if (isMounted) {
@@ -69,27 +93,58 @@ export default function App() {
     );
   }
 
-  // 1. Kiểm tra vai trò của tài khoản đã đăng nhập
-  const role = String(currentUser?.role || '').trim().toLowerCase();
+  // Màn hình thông báo khi khởi tạo phiên thất bại do mất kết nối
+  if (initError) {
+    return (
+      <View style={styles.loadingContainer}>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorTitle}>Lỗi kết nối</Text>
+          <Text style={styles.errorText}>{initError}</Text>
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => {
+              setIsInitializing(true);
+              setInitError('');
+              void bootstrapMobileSession().then((result) => {
+                if (result.status === 'authenticated' && result.user && !isAdminRole(result.user.role)) {
+                  setCurrentUser(result.user);
+                } else if (result.status === 'retry_required') {
+                  setInitError(result.message);
+                } else {
+                  setCurrentUser(null);
+                }
+                setIsInitializing(false);
+              });
+            }}
+          >
+            <Text style={styles.retryBtnText}>Thử lại</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
-  // Đăng nhập Kỹ sư -> Tự động nạp App Kỹ sư hiện trường
-  if (role === 'field_engineer' || role === 'engineer') {
+  // 1. Phân giải vai trò tài khoản khi đã có phiên làm việc hợp lệ
+  const appRole = resolveAppRole(currentUser?.role);
+
+  // Nếu vai trò là admin mà lọt vào đây -> Từ chối truy cập Mobile App
+  if (currentUser && appRole === 'admin') {
+    void clearMobileAuthSession();
+    return <MobileReporterApp key="unified-auth" />;
+  }
+
+  // Vai trò Kỹ sư hiện trường -> Tự động nạp App Kỹ sư hiện trường
+  if (currentUser && appRole === 'engineer') {
     return <MobileFieldEngineerApp key="engineer-app" />;
   }
 
-  // Đăng nhập Người dân -> Tự động nạp App Người phản ánh
-  if (role === 'reporter') {
+  // Vai trò Người dân -> Tự động nạp App Người phản ánh
+  if (currentUser && appRole === 'reporter') {
     return <MobileReporterApp key="reporter-app" />;
   }
 
-  // 2. Nếu chưa đăng nhập: Kiểm tra xem có cấu hình tĩnh qua env không
-  const envTarget = String(process.env.EXPO_PUBLIC_APP_TARGET || '').trim().toLowerCase();
-  if (envTarget === 'engineer' || envTarget === 'field_engineer') {
-    return <MobileFieldEngineerApp key="engineer-auth" />;
-  }
-
-  // Mặc định nạp Cổng đăng nhập của App Người phản ánh
-  return <MobileReporterApp key="reporter-auth" />;
+  // 2. Khi chưa đăng nhập: Luôn nạp Cổng đăng nhập thống nhất (dùng cho Người dân & Kỹ sư)
+  return <MobileReporterApp key="unified-auth" />;
 }
 
 const styles = StyleSheet.create({
@@ -98,5 +153,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 24,
+  },
+  errorBox: {
+    alignItems: 'center',
+    maxWidth: 320,
+    gap: 12,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  retryBtn: {
+    marginTop: 8,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

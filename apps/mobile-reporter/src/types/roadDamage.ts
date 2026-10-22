@@ -39,6 +39,12 @@ export type Report = {
   note?: string | null;
   aiStatus?: string;
   confidence?: number | null;
+  roadName?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
+  formattedAddress?: string | null;
+  isAddressPending?: boolean;
 };
 
 export type DamageDetection = {
@@ -80,4 +86,5 @@ export type NewReportPayload = {
   gps: GpsLocation;
   note: string;
   previewToken?: string | null;
+  imageSource?: string;
 };

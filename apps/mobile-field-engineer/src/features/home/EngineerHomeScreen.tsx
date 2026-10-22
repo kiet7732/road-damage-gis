@@ -1,16 +1,16 @@
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FieldTelemetryHeader from '../../components/FieldTelemetryHeader';
 import { getFieldEngineerUiLabel } from '../../../../../packages/shared-constants/src/engineerLabels';
 import type { EngineerBottomTabParamList, EngineerRootStackParamList } from '../../types/navigation';
 import { AppButton, AppIcon, EmptyState } from '../../shared/mobileShared';
 import {
   claimEngineerTask,
-  fetchEngineerTaskBuckets,
-  fetchEngineerTasksByScope,
+  fetchEngineerHomeScreenData,
   type EngineerTask,
   type EngineerTaskScope,
 } from '../../services/engineerReportService';
@@ -30,31 +30,41 @@ type SummaryState = {
 };
 
 export default function EngineerHomeScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState<SummaryState | null>(null);
   const [activeTask, setActiveTask] = useState<EngineerTask | null>(null);
   const [urgentQueue, setUrgentQueue] = useState<EngineerTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isClaimingId, setIsClaimingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  const loadData = useCallback(async (isRefresh = false) => {
+    // Stale-While-Revalidate: Only show blocking spinner on cold start when no data exists
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError('');
     try {
-      const [bucketData, inProgressList, availableList] = await Promise.all([
-        fetchEngineerTaskBuckets(),
-        fetchEngineerTasksByScope('in_progress'),
-        fetchEngineerTasksByScope('available'),
-      ]);
-      setSummary(bucketData);
-      setActiveTask(inProgressList.items[0] ?? null);
-      setUrgentQueue(availableList.items.slice(0, 4));
+      const data = await fetchEngineerHomeScreenData();
+      hasLoadedRef.current = true;
+      setSummary(data.summary);
+      setActiveTask(data.activeTask);
+      setUrgentQueue(data.urgentQueue);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('homeLoadErrorTitle'));
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    void loadData(true);
+  }, [loadData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -83,12 +93,23 @@ export default function EngineerHomeScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <FieldTelemetryHeader
-        title="TRUNG TÂM TÁC NGHIỆP HIỆN TRƯỜNG"
+        title="Trung tâm tác nghiệp"
         subtitle="Hệ thống Điều phối & Thẩm định Thực địa"
         badgeText="ĐANG TRỰC BAN"
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: Math.max(130, insets.bottom + 104) }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={[engineerColors.brandAccent]}
+            tintColor={engineerColors.brandAccent}
+          />
+        }
+      >
         {isLoading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={engineerColors.brandAccent} size="large" />
@@ -155,8 +176,12 @@ export default function EngineerHomeScreen({ navigation }: Props) {
                   <Text style={styles.activeId}>#RDG-{activeTask.id.slice(0, 6).toUpperCase()}</Text>
                 </View>
 
-                <Text style={styles.activeTitle} numberOfLines={2}>{activeTask.title}</Text>
-                <Text style={styles.activeAddress} numberOfLines={1}>📍 {activeTask.address || 'Khu vực khảo sát'}</Text>
+                <Text style={styles.activeTitle} numberOfLines={2}>
+                  {activeTask.title || 'Điểm khảo sát đang thực hiện'}
+                </Text>
+                <Text style={styles.activeAddress} numberOfLines={1}>
+                  📍 {activeTask.formattedAddress || activeTask.address || 'Khu vực khảo sát'}
+                </Text>
 
                 <View style={styles.activeActions}>
                   <Pressable
@@ -214,8 +239,12 @@ export default function EngineerHomeScreen({ navigation }: Props) {
                             </View>
                           ) : null}
                         </View>
-                        <Text style={styles.queueCardTitle} numberOfLines={1}>{task.title}</Text>
-                        <Text style={styles.queueCardAddress} numberOfLines={1}>📍 {task.address || 'Đoạn đường cần kiểm tra'}</Text>
+                        <Text style={styles.queueCardTitle} numberOfLines={1}>
+                          {task.title || (damageMeta ? `${damageMeta.code} - ${damageMeta.label}` : 'Điểm hư hỏng mặt đường')}
+                        </Text>
+                        <Text style={styles.queueCardAddress} numberOfLines={1}>
+                          📍 {task.formattedAddress || task.address || 'Đoạn đường cần kiểm tra'}
+                        </Text>
                       </View>
 
                       <View style={styles.queueCardActions}>
@@ -287,7 +316,7 @@ const styles = StyleSheet.create({
   content: {
     padding: engineerSpacing.md,
     gap: engineerSpacing.md,
-    paddingBottom: 28,
+    paddingBottom: 110,
   },
   loadingBox: {
     padding: 32,
@@ -329,19 +358,19 @@ const styles = StyleSheet.create({
 
   // Active Mission Card
   activeMissionCard: {
-    backgroundColor: engineerColors.headerBg,
+    backgroundColor: '#FFFFFF',
     borderRadius: engineerRadius.md,
     padding: engineerSpacing.md,
     gap: 8,
     borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
+    borderColor: engineerColors.borderLight,
     borderLeftWidth: 4,
     borderLeftColor: engineerColors.safetyAmber,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 3 },
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
-    elevation: 4,
+    elevation: 3,
   },
   activeTopRow: {
     flexDirection: 'row',
@@ -352,12 +381,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(247, 127, 0, 0.2)',
+    backgroundColor: 'rgba(247, 127, 0, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: engineerRadius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(247, 127, 0, 0.4)',
+    borderColor: 'rgba(247, 127, 0, 0.3)',
   },
   pulseDot: {
     width: 7,
@@ -372,19 +401,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   activeId: {
-    color: engineerColors.brandAccent,
+    color: engineerColors.brandPrimary,
     fontSize: 11,
     fontWeight: '900',
     fontFamily: 'monospace',
   },
   activeTitle: {
-    color: '#FFFFFF',
+    color: engineerColors.textNavy,
     fontSize: 15,
     fontWeight: '900',
     lineHeight: 20,
   },
   activeAddress: {
-    color: engineerColors.textOnDarkMuted,
+    color: engineerColors.textSecondary,
     fontSize: 12,
   },
   activeActions: {
@@ -411,15 +440,15 @@ const styles = StyleSheet.create({
   btnDetail: {
     flex: 1,
     minHeight: 40,
-    backgroundColor: engineerColors.headerSurface,
+    backgroundColor: '#F8FAFC',
     borderRadius: engineerRadius.xs,
     borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
+    borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnDetailText: {
-    color: '#FFFFFF',
+    color: engineerColors.brandPrimary,
     fontSize: 11,
     fontWeight: '800',
   },

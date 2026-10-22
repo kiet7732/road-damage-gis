@@ -51,6 +51,8 @@ export type ApiErrorEvent = {
 
 export type ApiErrorListener = (event: ApiErrorEvent) => void;
 
+declare const __DEV__: boolean | undefined;
+
 type RuntimeEnv = {
   EXPO_PUBLIC_API_URL?: string;
   VITE_API_URL?: string;
@@ -60,6 +62,7 @@ type RuntimeEnv = {
   NODE_ENV?: string;
 };
 
+const DEFAULT_PUBLIC_API_URL = 'https://api.tuannguyenkiet0612.dpdns.org/api';
 const DEFAULT_DEV_API_URL = 'http://localhost:5000/api';
 const DEFAULT_TIMEOUT_MS = 30000;
 
@@ -96,16 +99,53 @@ const runtimeEnv = (): RuntimeEnv => ({
 });
 
 export const getApiBaseURL = (): string => {
+  // 1. Browser runtime check: Automatically match public HTTPS domain or local host
+  if (typeof window !== 'undefined' && window.location) {
+    const { hostname, protocol } = window.location;
+
+    // When running on public domain (e.g. admin.tuannguyenkiet0612.dpdns.org) or any HTTPS origin
+    if (hostname.includes('tuannguyenkiet0612.dpdns.org') || (protocol === 'https:' && hostname !== 'localhost' && hostname !== '127.0.0.1')) {
+      return DEFAULT_PUBLIC_API_URL;
+    }
+
+    // When running on LAN IP (e.g. 192.168.1.x:5173) in browser
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && protocol === 'http:') {
+      return `http://${hostname}:5000/api`;
+    }
+  }
+
+  // 2. Direct member expression so Metro inlines EXPO_PUBLIC_API_URL at build time
+  const expoApiUrl =
+    typeof process !== 'undefined' && process.env
+      ? process.env.EXPO_PUBLIC_API_URL
+      : undefined;
+
   const env = runtimeEnv();
-  const baseURL =
+  const configuredUrl =
+    expoApiUrl ||
     env.EXPO_PUBLIC_API_URL ||
     env.VITE_API_URL ||
     env.REACT_APP_API_URL ||
     env.BACKEND_API_URL ||
-    env.API_URL ||
-    DEFAULT_DEV_API_URL;
+    env.API_URL;
 
-  return baseURL.replace(/\/+$/, '');
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, '');
+  }
+
+  // 3. Fallback for Native Apps / Node
+  const isDev =
+    typeof __DEV__ !== 'undefined'
+      ? __DEV__
+      : typeof process !== 'undefined' && process.env?.NODE_ENV
+      ? process.env.NODE_ENV !== 'production'
+      : false;
+
+  if (!isDev) {
+    return DEFAULT_PUBLIC_API_URL;
+  }
+
+  return DEFAULT_DEV_API_URL;
 };
 
 export class ApiClientError extends Error {
@@ -293,18 +333,33 @@ apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     const requestConfig = config as InternalAxiosRequestConfig & ApiRequestConfig;
 
-    if (requestConfig.skipAuth) {
-      return requestConfig;
+    const headers = AxiosHeaders.from(requestConfig.headers);
+
+    if (!requestConfig.skipAuth) {
+      const token = await authTokenStorage.getAccessToken();
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
     }
 
-    const token = await authTokenStorage.getAccessToken();
+    // Đảm bảo FormData (đặc biệt React Native FormData chứa _parts) có header multipart/form-data
+    const isFormData =
+      requestConfig.data &&
+      typeof requestConfig.data === 'object' &&
+      ('_parts' in requestConfig.data ||
+        (typeof FormData !== 'undefined' && requestConfig.data instanceof FormData));
 
-    if (token) {
-      const headers = AxiosHeaders.from(requestConfig.headers);
-      headers.set('Authorization', `Bearer ${token}`);
-      requestConfig.headers = headers;
+    if (isFormData) {
+      // Trong React Native (OkHttp) và Trình duyệt, KHÔNG ĐƯỢC set cứng 'multipart/form-data'
+      // vì sẽ làm mất tham số boundary khiến server báo 'Missing boundary' hoặc OkHttp lỗi mạng.
+      // Xóa Content-Type để runtime tự động gán 'multipart/form-data; boundary=...'.
+      headers.delete('Content-Type');
+      if (!requestConfig.timeout || requestConfig.timeout === DEFAULT_TIMEOUT_MS) {
+        requestConfig.timeout = 60000;
+      }
     }
 
+    requestConfig.headers = headers;
     return requestConfig;
   },
   (error) => Promise.reject(normalizeApiError(error)),

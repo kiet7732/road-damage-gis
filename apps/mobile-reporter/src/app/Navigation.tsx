@@ -20,7 +20,12 @@ import CameraScreen from '../features/report/CameraScreen';
 import ConfirmReportScreen from '../features/report/ConfirmReportScreen';
 import ReportDetailScreen from '../features/report/ReportDetailScreen';
 import { configureMobileApiClient } from '../services/configureApiClient';
-import { bootstrapMobileSession, fetchCurrentMobileUser, logout } from '../services/authService';
+import {
+  bootstrapMobileSession,
+  fetchCurrentMobileUser,
+  getCachedAuthUser,
+  logout,
+} from '../services/authService';
 import { preloadUserLocation } from '../services/locationService';
 import type { AuthStackParamList, BottomTabParamList, RootStackParamList } from '../types/navigation';
 
@@ -29,8 +34,9 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const BottomTab = createBottomTabNavigator<BottomTabParamList>();
 
 export default function Navigation() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const initialUser = getCachedAuthUser();
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialUser));
+  const [isAuthReady, setIsAuthReady] = useState(Boolean(initialUser));
   const [authBootstrapError, setAuthBootstrapError] = useState('');
   const [authBootstrapAttempt, setAuthBootstrapAttempt] = useState(0);
 
@@ -42,7 +48,9 @@ export default function Navigation() {
         return;
       }
 
-      setIsAuthReady(false);
+      if (!initialUser) {
+        setIsAuthReady(false);
+      }
       setAuthBootstrapError('');
 
       try {
@@ -55,7 +63,7 @@ export default function Navigation() {
         if (result.status === 'authenticated') {
           setIsAuthenticated(true);
           setAuthBootstrapError('');
-          void preloadUserLocation();
+          void preloadUserLocation({ requestPermission: true });
           return;
         }
 
@@ -123,8 +131,14 @@ export default function Navigation() {
     <RootStackNavigator onLogout={() => setIsAuthenticated(false)} />
   ) : (
     <AuthStackNavigator
-      onLogin={() => setIsAuthenticated(true)}
-      onRegisterSuccess={() => setIsAuthenticated(true)}
+      onLogin={() => {
+        setIsAuthenticated(true);
+        void preloadUserLocation({ requestPermission: true });
+      }}
+      onRegisterSuccess={() => {
+        setIsAuthenticated(true);
+        void preloadUserLocation({ requestPermission: true });
+      }}
     />
   );
 }
@@ -212,6 +226,12 @@ function MainTabNavigator({ onLogout }: { onLogout: () => void }) {
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        tabBarStyle: {
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+        },
       }}
     >
       <BottomTab.Screen name="Home" component={HomeScreen} />

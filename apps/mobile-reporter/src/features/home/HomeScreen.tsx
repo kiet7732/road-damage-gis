@@ -13,7 +13,7 @@ import StateMessage from '../../components/StateMessage';
 import { colors, iconSize, spacing } from '../../constants/theme';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { fetchCurrentMobileUser } from '../../services/authService';
-import { getOrLoadUserLocation } from '../../services/locationService';
+import { ensureLocationReady, getOrLoadUserLocation } from '../../services/locationService';
 import {
   DEFAULT_NEARBY_REPORT_RADIUS_METERS,
   fetchNearbyUnrepairedReports,
@@ -35,14 +35,20 @@ type HomeScreenProps = CompositeScreenProps<
 export default function HomeScreen({ navigation }: HomeScreenProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const userState = useAsyncData(fetchCurrentMobileUser, []);
-  const reportState = useAsyncData(fetchReportHistory, []);
+  const userState = useAsyncData(fetchCurrentMobileUser, [], {
+    cacheKey: 'current_user',
+    ttlMs: 120_000,
+  });
+  const reportState = useAsyncData(fetchReportHistory, [], {
+    cacheKey: 'report_history',
+    ttlMs: 60_000,
+  });
   const nearbyReportState = useAsyncData(
     useCallback(async () => {
-      const userLocation = await getOrLoadUserLocation();
+      const userLocation = await getOrLoadUserLocation({ requestPermission: true });
 
       if (!userLocation) {
-        throw new Error('Chưa lấy được vị trí hiện tại để thống kê các điểm gần bạn.');
+        throw new Error('Chưa lấy được vị trí hiện tại. Vui lòng cấp quyền vị trí và bật GPS.');
       }
 
       return fetchNearbyUnrepairedReports({
@@ -53,6 +59,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       });
     }, []),
     [],
+    {
+      cacheKey: 'nearby_unrepaired_reports',
+      ttlMs: 30_000,
+    },
   );
   const reloadUser = userState.reload;
   const reloadReports = reportState.reload;
@@ -63,9 +73,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const nearbyPreviewReports = nearbyReports.slice(0, 2);
   const compact = width < 370;
   const horizontalPadding = compact ? spacing.md : spacing.lg;
-  const contentBottomPadding = Math.max(120, insets.bottom + 92);
+  const contentBottomPadding = Math.max(140, insets.bottom + 128);
   const topPadding = Math.max(insets.top + spacing.sm, Platform.OS === 'android' ? 18 : spacing.md);
   const hasHandledInitialFocusRef = useRef(false);
+  const lastFocusReloadAtRef = useRef(Date.now());
 
   const stats = buildStatusStats(reports);
   const isLoading = userState.isLoading || reportState.isLoading;
@@ -92,8 +103,16 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     useCallback(() => {
       if (!hasHandledInitialFocusRef.current) {
         hasHandledInitialFocusRef.current = true;
+        lastFocusReloadAtRef.current = Date.now();
         return;
       }
+
+      const now = Date.now();
+      // Throttle: chỉ tự động revalidate khi focus nếu dữ liệu cũ hơn 45s
+      if (now - lastFocusReloadAtRef.current < 45_000) {
+        return;
+      }
+      lastFocusReloadAtRef.current = now;
 
       void reloadHomeData('refresh');
     }, [reloadHomeData]),
@@ -220,11 +239,24 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         ) : null}
 
         {!nearbyReportState.isLoading && nearbyReportState.isError ? (
-          <StateMessage
-            title="Không tải được điểm gần bạn"
-            description={nearbyErrorText}
-            tone="error"
-          />
+          <View style={styles.nearbyErrorCard}>
+            <StateMessage
+              title="Không tải được điểm gần bạn"
+              description={nearbyErrorText}
+              tone="error"
+            />
+            <View style={styles.retryLocationContainer}>
+              <AppButton
+                label="Bật vị trí & Thử lại"
+                variant="outline"
+                icon={<AppIcon name="locate" size={iconSize.sm} color={colors.primary} containerSize={18} />}
+                onPress={async () => {
+                  await ensureLocationReady({ requestPermission: true, promptAlert: true });
+                  void reloadNearbyReports('refresh');
+                }}
+              />
+            </View>
+          </View>
         ) : null}
 
         {!nearbyReportState.isLoading &&
@@ -286,9 +318,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                   </View>
 
                   <View style={styles.nearbyContent}>
-                    <Text selectable numberOfLines={2} style={styles.nearbyTitle}>
-                      {report.title}
-                    </Text>
+                    <View style={styles.nearbyTitleContainer}>
+                      <Text selectable numberOfLines={2} style={styles.nearbyTitle}>
+                        {report.title}
+                      </Text>
+                    </View>
 
                     <View
                       style={[
@@ -301,16 +335,30 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                       </Text>
                     </View>
 
-                    <View style={styles.nearbyMetaRow}>
-                      <AppIcon
-                        name="time-outline"
-                        size={14}
-                        color={colors.textMuted}
-                        containerSize={16}
-                      />
-                      <Text selectable numberOfLines={1} style={styles.nearbyMetaText}>
-                        {report.createdAt}
-                      </Text>
+                    <View style={styles.nearbyBottomSection}>
+                      <View style={styles.nearbyMetaRow}>
+                        <AppIcon
+                          name="location-outline"
+                          size={14}
+                          color={colors.primary}
+                          containerSize={16}
+                        />
+                        <Text selectable numberOfLines={1} ellipsizeMode="tail" style={styles.nearbyMetaText}>
+                          {report.formattedAddress || [report.roadName, report.ward, report.district].filter(Boolean).join(', ') || report.address}
+                        </Text>
+                      </View>
+
+                      <View style={styles.nearbyMetaRow}>
+                        <AppIcon
+                          name="time-outline"
+                          size={14}
+                          color={colors.textMuted}
+                          containerSize={16}
+                        />
+                        <Text selectable numberOfLines={1} style={styles.nearbyMetaText}>
+                          {report.createdAt}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </Pressable>
@@ -553,12 +601,12 @@ const styles = StyleSheet.create({
   },
   nearbyList: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: spacing.md,
   },
   nearbyCard: {
     flex: 1,
-    minHeight: 170,
-    justifyContent: 'space-between',
+    minHeight: 220,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     borderRadius: 22,
@@ -586,18 +634,27 @@ const styles = StyleSheet.create({
   },
   nearbyContent: {
     flex: 1,
-    justifyContent: 'space-between',
-    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   nearbyTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
   nearbyType: {
     fontSize: 13,
     fontWeight: '900',
+  },
+  nearbyTitleContainer: {
+    minHeight: 38,
+    justifyContent: 'flex-start',
+  },
+  nearbyTitle: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
   },
   nearbyStatusPill: {
     minHeight: 24,
@@ -606,30 +663,39 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 6,
   },
   nearbyStatusText: {
     fontSize: 10,
     fontWeight: '900',
   },
-  nearbyTitle: {
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
+  nearbyBottomSection: {
+    gap: 4,
+    marginTop: 'auto',
+    paddingTop: 6,
+    paddingBottom: 2,
   },
   nearbyMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   nearbyMetaText: {
     flex: 1,
     color: colors.textMuted,
     fontSize: 11,
+    lineHeight: 16,
     fontWeight: '700',
   },
   recentList: {
     gap: spacing.md,
+  },
+  nearbyErrorCard: {
+    gap: spacing.sm,
+  },
+  retryLocationContainer: {
+    alignItems: 'center',
+    marginTop: spacing.xs,
   },
   pressed: {
     opacity: 0.88,

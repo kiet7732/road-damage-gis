@@ -42,9 +42,19 @@ export default function RecentReportCard({ report, onPress }: RecentReportCardPr
         </View>
 
         <View style={styles.metaRow}>
-          <AppIcon name="location-outline" size={iconSize.sm} color={colors.textMuted} containerSize={18} />
-          <Text selectable numberOfLines={1} style={styles.metaText}>
-            {report?.address ?? 'N/A'}
+          <AppIcon
+            name={report?.isAddressPending ? 'time-outline' : 'location-outline'}
+            size={iconSize.sm}
+            color={report?.isAddressPending ? colors.textMuted : colors.primary}
+            containerSize={18}
+          />
+          <Text
+            selectable
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={[styles.metaText, report?.isAddressPending && styles.pendingMetaText]}
+          >
+            {report?.formattedAddress || report?.address || 'N/A'}
           </Text>
         </View>
 
@@ -145,6 +155,22 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.textMuted,
     fontSize: 12,
-    fontWeight: '700',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  pendingMetaText: {
+    fontStyle: 'italic',
+  },
+  adminBadgeRow: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+  },
+  adminBadgeText: {
+    color: '#1D4ED8',
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

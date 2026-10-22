@@ -48,6 +48,11 @@ type BackendReport = {
   location_recorded_at?: string | null;
   note?: string | null;
   corrected_damage_type?: string | null;
+  road_name?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
+  formatted_address?: string | null;
   ai_status: string;
   status: string;
   ai_result: BackendAiResult;
@@ -93,6 +98,11 @@ type GeoJsonFeature = {
     damage_type?: string | null;
     damage_label?: string | null;
     corrected_damage_type?: string | null;
+    road_name?: string | null;
+    ward?: string | null;
+    district?: string | null;
+    province?: string | null;
+    formatted_address?: string | null;
     is_ai_overridden?: boolean;
     confidence?: number | null;
     created_at: string;
@@ -105,10 +115,10 @@ type SubmitReportOptions = {
 };
 
 type ReportMapViewportOptions = {
-  minLatitude: number;
-  minLongitude: number;
-  maxLatitude: number;
-  maxLongitude: number;
+  minLatitude?: number;
+  minLongitude?: number;
+  maxLatitude?: number;
+  maxLongitude?: number;
   limit?: number;
   status?: ReportStatus | 'all';
   damageType?: DamageTypeCode | 'all';
@@ -284,28 +294,59 @@ const mapBackendAiResult = (aiResult: BackendAiResult): ReportAiResult => ({
   previewToken: aiResult?.preview_token ?? null,
 });
 
-const mapBackendReportToMobileReport = (report: BackendReport): Report => ({
-  id: report.id,
-  title: buildReportTitle(report),
-  address: `Tọa độ: ${report.latitude.toFixed(6)}, ${report.longitude.toFixed(6)}`,
-  status: getReportStatus(report.status),
-  type: getDamageType(getEffectiveDamageType(report)),
-  createdAt: formatCreatedAt(report.created_at),
-  createdAtRaw: report.created_at,
-  updatedAt: formatCreatedAt(report.updated_at),
-  updatedAtRaw: report.updated_at,
-  photoUri: buildImageUrl(report.image_url),
-  note: report.note,
-  aiStatus: report.ai_status,
-  confidence: report.ai_result?.detections?.[0]?.confidence ?? null,
-  gps: {
-    latitude: report.latitude,
-    longitude: report.longitude,
-    accuracy: report.gps_accuracy ?? 0,
-    capturedAt: report.location_recorded_at || report.created_at,
-    source: (report.location_source?.trim().toLowerCase() === 'map_selected' ? 'map_selected' : 'camera_gps'),
-  },
-});
+export const buildDisplayAddress = (report: {
+  road_name?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
+  formatted_address?: string | null;
+}): { address: string; isPending: boolean } => {
+  if (report.formatted_address && report.formatted_address.trim()) {
+    return { address: report.formatted_address.trim(), isPending: false };
+  }
+
+  const parts = [report.road_name, report.ward, report.district].filter(
+    (part): part is string => Boolean(part && part.trim()),
+  );
+  if (parts.length > 0) {
+    return { address: parts.join(', '), isPending: false };
+  }
+
+  return { address: 'Đang xác định địa chỉ...', isPending: true };
+};
+
+const mapBackendReportToMobileReport = (report: BackendReport): Report => {
+  const displayAddress = buildDisplayAddress(report);
+
+  return {
+    id: report.id,
+    title: buildReportTitle(report),
+    address: displayAddress.address,
+    isAddressPending: displayAddress.isPending,
+    roadName: report.road_name ?? null,
+    ward: report.ward ?? null,
+    district: report.district ?? null,
+    province: report.province ?? null,
+    formattedAddress: report.formatted_address ?? null,
+    status: getReportStatus(report.status),
+    type: getDamageType(getEffectiveDamageType(report)),
+    createdAt: formatCreatedAt(report.created_at),
+    createdAtRaw: report.created_at,
+    updatedAt: formatCreatedAt(report.updated_at),
+    updatedAtRaw: report.updated_at,
+    photoUri: buildImageUrl(report.image_url),
+    note: report.note,
+    aiStatus: report.ai_status,
+    confidence: report.ai_result?.detections?.[0]?.confidence ?? null,
+    gps: {
+      latitude: report.latitude,
+      longitude: report.longitude,
+      accuracy: report.gps_accuracy ?? 0,
+      capturedAt: report.location_recorded_at || report.created_at,
+      source: (report.location_source?.trim().toLowerCase() === 'map_selected' ? 'map_selected' : 'camera_gps'),
+    },
+  };
+};
 
 const mapBackendReportToMobileReportDetail = (report: BackendReport): ReportDetail => ({
   ...mapBackendReportToMobileReport(report),
@@ -341,6 +382,11 @@ const mapGeoJsonFeatureToBackendReport = (feature: GeoJsonFeature): BackendRepor
     location_recorded_at: properties.location_recorded_at ?? null,
     note: properties.note ?? null,
     corrected_damage_type: properties.corrected_damage_type ?? null,
+    road_name: properties.road_name ?? null,
+    ward: properties.ward ?? null,
+    district: properties.district ?? null,
+    province: properties.province ?? null,
+    formatted_address: properties.formatted_address ?? null,
     ai_status: properties.ai_status || 'completed',
     status: properties.status,
     ai_result: {
@@ -464,10 +510,18 @@ export const fetchUnrepairedReportMapPoints = async (
   options: ReportMapViewportOptions,
 ): Promise<ReportMapData> => {
   const params = new URLSearchParams();
-  params.set('min_latitude', String(options.minLatitude));
-  params.set('min_longitude', String(options.minLongitude));
-  params.set('max_latitude', String(options.maxLatitude));
-  params.set('max_longitude', String(options.maxLongitude));
+  if (options.minLatitude != null) {
+    params.set('min_latitude', String(options.minLatitude));
+  }
+  if (options.minLongitude != null) {
+    params.set('min_longitude', String(options.minLongitude));
+  }
+  if (options.maxLatitude != null) {
+    params.set('max_latitude', String(options.maxLatitude));
+  }
+  if (options.maxLongitude != null) {
+    params.set('max_longitude', String(options.maxLongitude));
+  }
   params.set('limit', String(options.limit ?? 500));
 
   if (options.status && options.status !== 'all') {
@@ -596,11 +650,14 @@ export const submitRoadDamageReport = async (
   appendPhotoToFormData(formData, payload.photoUri);
   appendGpsToFormData(formData, payload.gps);
   formData.append('note', payload.note?.trim() ?? '');
+  formData.append('image_source', payload.imageSource?.trim() || 'camera_live');
   if (payload.previewToken?.trim()) {
     formData.append('preview_token', payload.previewToken.trim());
   }
 
   const response = await api.post<BackendReport, FormData>('/reports', formData, {
+    timeout: 60000,
+    suppressGlobalError: true,
     onUploadProgress: (event) => {
       if (!event.total) {
         return;
@@ -623,6 +680,10 @@ export const previewRoadDamageDetection = async (
   const response = await api.post<BackendAiResult, FormData>(
     '/reports/preview-ai',
     formData,
+    {
+      timeout: 60000,
+      suppressGlobalError: true,
+    },
   );
 
   return mapBackendAiResult(response);

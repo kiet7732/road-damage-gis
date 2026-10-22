@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppIcon, getOrLoadUserLocation, type CachedUserLocation } from '../shared/mobileShared';
 import { engineerColors, engineerRadius, engineerSpacing } from '../styles/engineerTheme';
 
@@ -14,6 +15,7 @@ export default function FieldTelemetryHeader({
   subtitle = 'Hệ thống Quản lý & Thẩm định Hư hỏng Mặt đường',
   badgeText = 'CA TRỰC THỰC ĐỊA',
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [location, setLocation] = useState<CachedUserLocation | null>(null);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function FieldTelemetryHeader({
   }, []);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: Math.max(insets.top, engineerSpacing.md) }]}>
       {/* Top telemetry bar */}
       <View style={styles.telemetryRow}>
         <View style={styles.badgeWrap}>
@@ -65,12 +67,17 @@ export default function FieldTelemetryHeader({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: engineerColors.headerBg,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: engineerSpacing.lg,
     paddingTop: engineerSpacing.md,
     paddingBottom: engineerSpacing.md,
-    borderBottomWidth: 2,
-    borderBottomColor: engineerColors.headerBorder,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   telemetryRow: {
     flexDirection: 'row',
@@ -85,18 +92,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: engineerRadius.xs,
-    backgroundColor: 'rgba(255, 159, 28, 0.16)',
+    backgroundColor: '#EEF5FF',
     borderWidth: 1,
-    borderColor: 'rgba(255, 159, 28, 0.4)',
+    borderColor: '#DBEAFE',
   },
   radarDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: engineerColors.safetyOrange,
+    backgroundColor: '#0F52BA',
   },
   badgeText: {
-    color: engineerColors.safetyOrange,
+    color: '#0F52BA',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
@@ -108,12 +115,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: engineerRadius.xs,
-    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderColor: '#A7F3D0',
   },
   gpsStatusText: {
-    color: engineerColors.radarGreen,
+    color: '#059669',
     fontSize: 11,
     fontWeight: '800',
     fontFamily: 'monospace',
@@ -122,13 +129,13 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   mainTitle: {
-    color: engineerColors.textOnDark,
+    color: '#0B132B',
     fontSize: 18,
     fontWeight: '900',
     letterSpacing: 0.2,
   },
   subtitle: {
-    color: engineerColors.textOnDarkMuted,
+    color: '#64748B',
     fontSize: 12,
     marginTop: 2,
   },
@@ -137,12 +144,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     borderLeftWidth: 3,
-    borderLeftColor: engineerColors.brandAccent,
+    borderLeftColor: '#0F52BA',
   },
   coordText: {
-    color: engineerColors.brandAccent,
+    color: '#334155',
     fontSize: 11,
     fontWeight: '700',
     fontFamily: 'monospace',

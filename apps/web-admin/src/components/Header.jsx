@@ -1,15 +1,15 @@
 import { FiBell, FiChevronDown, FiMenu } from 'react-icons/fi';
-import useAsyncData from '../hooks/useAsyncData';
 import { UI_COLORS } from '../constants/statusColors';
-import { fetchCurrentAdminUser } from '../services/authService';
+import { useAuth } from '../hooks/useAuth';
 
 const NAV_ICON_SIZE = 24;
 const INLINE_ICON_SIZE = 18;
 
 export default function Header({ compact = false, onMenuClick, onLogout }) {
-  const { data: currentUser } = useAsyncData(fetchCurrentAdminUser, []);
+  const { user: currentUser } = useAuth();
   const displayName = currentUser?.fullName?.trim() || currentUser?.name?.trim() || 'Tài khoản';
   const displayRole = currentUser?.role?.trim() || 'Chưa có vai trò';
+  const managedDistrict = currentUser?.managed_district || currentUser?.managedDistrict;
   const avatarText = displayName.charAt(0).toUpperCase();
 
   return (
@@ -43,7 +43,10 @@ export default function Header({ compact = false, onMenuClick, onLogout }) {
             <div style={styles.userText}>
               <div style={styles.userName}>{displayName}</div>
               <div className="road-admin-user-role" style={styles.userRole}>
-                {displayRole}
+                <span>{displayRole}</span>
+                {managedDistrict ? (
+                  <span style={styles.districtBadge}>{managedDistrict}</span>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -174,6 +177,21 @@ const styles = {
     marginTop: 2,
     color: UI_COLORS.textMuted,
     fontSize: 12,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  districtBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '1px 6px',
+    borderRadius: 6,
+    background: '#EFF6FF',
+    color: UI_COLORS.primary,
+    border: '1px solid #BFDBFE',
+    fontSize: 11,
+    fontWeight: 700,
+    lineHeight: '14px',
   },
   inlineIcon: {
     display: 'inline-flex',

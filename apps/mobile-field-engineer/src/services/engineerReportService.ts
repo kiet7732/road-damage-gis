@@ -3,6 +3,7 @@ import { getFieldEngineerUiLabel, getFieldWorkflowStatus } from '../../../../pac
 import { normalizeRoadDamagePublicStatus, getRoadDamageType } from '../../../../packages/shared-constants/src/roadDamage';
 import type { DamageTypeCode, ReportStatus } from '../../../../packages/mobile-shared/src/theme';
 import type { Report } from '../../../../packages/mobile-shared/src/roadDamageTypes';
+import { openGoogleMapsNavigation } from '../../../../packages/mobile-shared/src/locationService';
 
 type BackendDamageDetection = {
   damage_type?: string | null;
@@ -35,6 +36,11 @@ type BackendEngineerReport = {
   location_recorded_at?: string | null;
   note?: string | null;
   corrected_damage_type?: string | null;
+  road_name?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
+  formatted_address?: string | null;
   ai_status: string;
   status: string;
   ai_result: BackendAiResult;
@@ -117,6 +123,8 @@ export type EngineerCheckInPayload = {
   longitude: number;
   gpsAccuracy: number;
   source?: string;
+  isMocked?: boolean;
+  distanceMeters?: number | null;
 };
 
 export type EngineerSurveyPayload = {
@@ -130,6 +138,8 @@ export type EngineerSurveyPayload = {
 export type EngineerSurveyAttachmentPayload = {
   photoUri: string;
   note?: string;
+  imageSource?: string;
+  capturedAt?: string;
 };
 
 type EngineerTaskListResult = {
@@ -276,6 +286,65 @@ const appendPhotoToFormData = (formData: FormData, fieldName: string, photoUri: 
   } as unknown as Blob);
 };
 
+export const openExternalNavigation = async (location: {
+  address?: string | null;
+  latitude: number;
+  longitude: number;
+  label?: string;
+}): Promise<boolean> => {
+  return openGoogleMapsNavigation(location);
+};
+
+export const formatTaskDisplayAddress = (task: {
+  formattedAddress?: string | null;
+  roadName?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
+  latitude?: number;
+  longitude?: number;
+}): { primaryAddress: string; secondaryAddress?: string; isPending: boolean } => {
+  const formatted = (task.formattedAddress || '').trim();
+  const roadName = (task.roadName || '').trim();
+  const ward = (task.ward || '').trim();
+  const district = (task.district || '').trim();
+  const province = (task.province || '').trim();
+
+  if (roadName) {
+    const subParts = [ward, district, province].filter(Boolean);
+    return {
+      primaryAddress: roadName,
+      secondaryAddress: subParts.length > 0 ? subParts.join(', ') : undefined,
+      isPending: false,
+    };
+  }
+
+  if (formatted) {
+    return {
+      primaryAddress: formatted,
+      secondaryAddress: undefined,
+      isPending: false,
+    };
+  }
+
+  const administrativeFallback = [ward, district, province].filter(Boolean).join(', ');
+  if (administrativeFallback) {
+    return {
+      primaryAddress: administrativeFallback,
+      isPending: false,
+    };
+  }
+
+  return {
+    primaryAddress: 'Đang xác định địa chỉ...',
+    secondaryAddress:
+      typeof task.latitude === 'number' && typeof task.longitude === 'number'
+        ? `Tọa độ: ${task.latitude.toFixed(6)}, ${task.longitude.toFixed(6)}`
+        : undefined,
+    isPending: true,
+  };
+};
+
 const mapBackendReportToEngineerTask = (report: BackendEngineerReport): EngineerTask => {
   const effectiveDamageType =
     report.field_verified_damage_type ||
@@ -285,10 +354,35 @@ const mapBackendReportToEngineerTask = (report: BackendEngineerReport): Engineer
   const fieldStatus = String(report.field_status || 'available_for_inspection').trim().toLowerCase();
   const fieldMeta = getFieldWorkflowStatus(fieldStatus);
 
+  const formattedAddress = (report.formatted_address || '').trim() || null;
+  const roadName = (report.road_name || '').trim() || null;
+  const ward = (report.ward || '').trim() || null;
+  const district = (report.district || '').trim() || null;
+  const province = (report.province || '').trim() || null;
+  const isAddressPending = !formattedAddress && !roadName && !ward;
+
+  let displayAddress = formattedAddress;
+  if (!displayAddress) {
+    const parts = [roadName, ward, district, province].filter(Boolean);
+    if (parts.length > 0) {
+      displayAddress = parts.join(', ');
+    } else {
+      displayAddress = isAddressPending
+        ? 'Đang xác định địa chỉ...'
+        : `Tọa độ: ${report.latitude.toFixed(6)}, ${report.longitude.toFixed(6)}`;
+    }
+  }
+
   return {
     id: report.id,
     title: buildReportTitle(report),
-    address: `Tọa độ: ${report.latitude.toFixed(6)}, ${report.longitude.toFixed(6)}`,
+    address: displayAddress,
+    roadName,
+    ward,
+    district,
+    province,
+    formattedAddress,
+    isAddressPending,
     status: getPublicStatus(report.status),
     type: getDamageType(effectiveDamageType),
     createdAt: formatDateTime(report.created_at),
@@ -382,6 +476,26 @@ async function fetchEngineerScope(scope: EngineerTaskScope, limit = 50): Promise
   return {
     items,
     total: Number(response?.total) || items.length,
+  };
+}
+
+export async function fetchEngineerHomeScreenData() {
+  const [inProgressList, availableList, assigned, surveyed] = await Promise.all([
+    fetchEngineerScope('in_progress', 10),
+    fetchEngineerScope('available', 10),
+    fetchEngineerScope('assigned', 1),
+    fetchEngineerHistory(1),
+  ]);
+
+  return {
+    summary: {
+      availableTotal: availableList.total,
+      assignedTotal: assigned.total,
+      inProgressTotal: inProgressList.total,
+      surveyedTotal: surveyed.total,
+    },
+    activeTask: inProgressList.items[0] ?? null,
+    urgentQueue: availableList.items.slice(0, 4),
   };
 }
 
@@ -492,6 +606,8 @@ export async function checkInEngineerTask(
       longitude: payload.longitude,
       gps_accuracy: payload.gpsAccuracy,
       source: payload.source ?? 'gps_live',
+      is_mocked: payload.isMocked ?? false,
+      distance_meters: payload.distanceMeters ?? null,
     }, {
       suppressGlobalError: true,
     });
@@ -529,11 +645,14 @@ export async function uploadEngineerSurveyAttachment(
     const formData = new FormData();
     appendPhotoToFormData(formData, 'files', payload.photoUri);
     formData.append('note', payload.note?.trim() || '');
+    formData.append('image_source', payload.imageSource || 'camera_live');
+    formData.append('captured_at', payload.capturedAt || new Date().toISOString());
 
     const response = await api.post<{ items?: BackendEngineerAttachment[] }, FormData>(
       `/engineer/reports/${reportId}/survey-attachments`,
       formData,
       {
+        timeout: 60000,
         suppressGlobalError: true,
       },
     );

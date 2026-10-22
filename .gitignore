@@ -105,3 +105,24 @@ desktop.ini
 # Local AI assistant workspace files
 .claude/
 .codex/
+
+# Local debug / test screenshots in root
+/*.png
+/*.jpg
+/*.jpeg
+
+# Builds and bundles
+*.apk
+*.aab
+assets/index.android.bundle
+
+# Root-level SQLite files
+services/backend-api/*.db
+services/backend-api/*.db-*
+
+# Scratch test files
+dump_temp.xml
+login_dump.xml
+temp_strings.txt
+*.docx
+

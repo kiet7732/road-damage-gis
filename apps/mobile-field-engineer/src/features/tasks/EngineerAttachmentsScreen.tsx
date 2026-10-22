@@ -1,8 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { File as ExpoFile } from 'expo-file-system';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { useCameraPermissions } from 'expo-camera';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,14 +23,12 @@ import {
   type EngineerTask,
 } from '../../services/engineerReportService';
 import EngineerPhotoViewer from './components/EngineerPhotoViewer';
+import EngineerCameraView from './components/EngineerCameraView';
 
 type Props = NativeStackScreenProps<EngineerRootStackParamList, 'EngineerAttachments'>;
 
-const MAX_IMAGE_DIMENSION = 1600;
-
 export default function EngineerAttachmentsScreen({ route, navigation }: Props) {
   const { reportId } = route.params;
-  const cameraRef = useRef<CameraView | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [task, setTask] = useState<EngineerTask | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,15 +37,18 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
   const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
   const [attachmentNote, setAttachmentNote] = useState('');
   const [error, setError] = useState('');
-  const [isCapturing, setIsCapturing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const loadTask = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError('');
     try {
       const detail = await fetchEngineerTaskDetail(reportId);
       setTask(detail);
+      hasLoadedRef.current = true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('attachmentsLoadError'));
     } finally {
@@ -87,73 +86,6 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
     setIsCameraOpen(true);
   };
 
-  const handleCapturePhoto = async () => {
-    if (isCapturing) {
-      return;
-    }
-
-    setIsCapturing(true);
-    setError('');
-
-    try {
-      const photo = await cameraRef.current?.takePictureAsync({
-        quality: 0.82,
-        skipProcessing: false,
-      });
-
-      if (!photo?.uri) {
-        throw new Error('Không chụp được ảnh bổ sung.');
-      }
-
-      const photoWidth = Number.isFinite(photo.width) ? photo.width : undefined;
-      const photoHeight = Number.isFinite(photo.height) ? photo.height : undefined;
-      const longestEdge = Math.max(photoWidth ?? 0, photoHeight ?? 0);
-      const shouldResize = longestEdge > MAX_IMAGE_DIMENSION;
-
-      const optimizedPhoto = await manipulateAsync(
-        photo.uri,
-        shouldResize
-          ? [
-              photoWidth && photoHeight
-                ? photoWidth >= photoHeight
-                  ? { resize: { width: MAX_IMAGE_DIMENSION } }
-                  : { resize: { height: MAX_IMAGE_DIMENSION } }
-                : { resize: { width: MAX_IMAGE_DIMENSION } },
-            ]
-          : [],
-        {
-          compress: 0.8,
-          format: SaveFormat.JPEG,
-        },
-      );
-
-      if (!optimizedPhoto?.uri) {
-        throw new Error('Không tối ưu được ảnh bổ sung.');
-      }
-
-      if (photo.uri !== optimizedPhoto.uri) {
-        try {
-          const rawPhoto = new ExpoFile(photo.uri) as unknown as {
-            exists: boolean;
-            delete: () => void;
-          };
-          if (rawPhoto.exists) {
-            rawPhoto.delete();
-          }
-        } catch {
-          // Bỏ qua lỗi dọn file tạm.
-        }
-      }
-
-      setCapturedPhotoUri(optimizedPhoto.uri);
-      setIsCameraOpen(false);
-    } catch (captureError) {
-      setError(captureError instanceof Error ? captureError.message : 'Không thể chụp ảnh bổ sung.');
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
   const handleUploadAttachment = async () => {
     if (!task || !capturedPhotoUri || isUploading) {
       return;
@@ -165,6 +97,8 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
       await uploadEngineerSurveyAttachment(task.id, {
         photoUri: capturedPhotoUri,
         note: attachmentNote,
+        imageSource: 'camera_live',
+        capturedAt: new Date().toISOString(),
       });
       setCapturedPhotoUri(null);
       setAttachmentNote('');
@@ -175,34 +109,6 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
       setIsUploading(false);
     }
   };
-
-  if (isCameraOpen) {
-    return (
-      <View style={styles.cameraScreen}>
-        <CameraView ref={cameraRef} style={styles.cameraPreview} facing="back" />
-        <View style={styles.cameraOverlay}>
-          <Text style={styles.cameraTitle}>{getFieldEngineerUiLabel('attachmentsCameraTitle')}</Text>
-          <Text style={styles.cameraHint}>{getFieldEngineerUiLabel('attachmentsCameraHint')}</Text>
-
-          {error ? <Text style={styles.cameraError}>{error}</Text> : null}
-
-          <View style={styles.cameraActions}>
-            <AppButton
-              label={getFieldEngineerUiLabel('attachmentsCloseCamera')}
-              variant="outline"
-              onPress={() => setIsCameraOpen(false)}
-              disabled={isCapturing}
-            />
-            <AppButton
-              label={isCapturing ? getFieldEngineerUiLabel('attachmentsCapturePending') : getFieldEngineerUiLabel('attachmentsCapture')}
-              onPress={() => void handleCapturePhoto()}
-              disabled={isCapturing}
-            />
-          </View>
-        </View>
-      </View>
-    );
-  }
 
   if (isLoading) {
     return (
@@ -246,7 +152,14 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Ảnh chuẩn bị tải lên</Text>
             <Pressable onPress={() => setViewerImageUri(capturedPhotoUri)} style={styles.previewWrap}>
-              <Image source={{ uri: capturedPhotoUri }} style={styles.previewImage} resizeMode="cover" />
+              <Image
+                source={{ uri: capturedPhotoUri }}
+                style={StyleSheet.absoluteFillObject}
+                blurRadius={20}
+                resizeMode="cover"
+              />
+              <View style={styles.photoBackdropOverlay} />
+              <Image source={{ uri: capturedPhotoUri }} style={styles.previewImage} resizeMode="contain" />
             </Pressable>
             <TextInput
               placeholder="Ghi chú ngắn cho ảnh bổ sung (nếu cần)"
@@ -335,6 +248,18 @@ export default function EngineerAttachmentsScreen({ route, navigation }: Props) 
         title={getFieldEngineerUiLabel('attachmentsSectionTitle')}
         onClose={() => setViewerImageUri(null)}
       />
+
+      {task && isCameraOpen ? (
+        <EngineerCameraView
+          visible={isCameraOpen}
+          task={task}
+          onClose={() => setIsCameraOpen(false)}
+          onCapturePhoto={(photoUri) => {
+            setCapturedPhotoUri(photoUri);
+            setIsCameraOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -407,13 +332,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   previewWrap: {
+    height: 300,
     borderRadius: radius.lg,
     overflow: 'hidden',
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoBackdropOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
   previewImage: {
     width: '100%',
-    height: 240,
-    backgroundColor: colors.surfaceMuted,
+    height: '100%',
   },
   noteInput: {
     minHeight: 52,
@@ -446,8 +378,8 @@ const styles = StyleSheet.create({
     opacity: 0.94,
   },
   attachmentThumb: {
-    width: 72,
-    height: 72,
+    width: 64,
+    height: 80,
     borderRadius: radius.md,
     backgroundColor: colors.border,
   },
@@ -476,42 +408,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   actions: {
-    gap: spacing.md,
-  },
-  cameraScreen: {
-    flex: 1,
-    backgroundColor: '#020617',
-  },
-  cameraPreview: {
-    flex: 1,
-  },
-  cameraOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-    backgroundColor: 'rgba(2, 6, 23, 0.72)',
-  },
-  cameraTitle: {
-    color: colors.surface,
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  cameraHint: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  cameraError: {
-    color: '#FFD3CE',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  cameraActions: {
     gap: spacing.md,
   },
 });

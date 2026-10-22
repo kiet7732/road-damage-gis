@@ -1,399 +1,24 @@
 import 'leaflet/dist/leaflet.css';
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import L from 'leaflet';
-import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
-import { FiClock, FiExternalLink, FiMapPin } from 'react-icons/fi';
-import { DAMAGE_TYPES, getStatusColor, UI_COLORS } from '../constants/statusColors';
-import { getMapImageUrl } from '../services/mapAdminService';
-import { formatConfidence, formatDateTime } from '../utils/formatters';
-import { getEffectiveDamageType, getEffectiveDamageTypeLabel } from '../utils/reportDamage';
-
-const DEFAULT_ZOOM = 12;
-const MIN_ZOOM = 6;
-const MAX_ZOOM = 18;
-const VIEWPORT_DEBOUNCE_MS = 550;
-const CLUSTER_STATUS_ORDER = ['pending', 'processing', 'repaired'];
-
-const createPointIcon = (status, damageType, isSelected = false) => {
-  const tone = getStatusColor(status);
-  const damageTone = DAMAGE_TYPES[damageType] || DAMAGE_TYPES.D40;
-  const width = isSelected ? 30 : 26;
-  const height = isSelected ? 38 : 34;
-  const anchorX = width / 2;
-  const anchorY = height - 2;
-  const ring = isSelected ? '0 0 0 8px rgba(7, 93, 187, 0.18),' : '';
-
-  return L.divIcon({
-    className: 'road-admin-gis-marker',
-    html: `
-      <div style="
-        position: relative;
-        width: ${width}px;
-        height: ${height}px;
-        transform: ${isSelected ? 'scale(1.08)' : 'scale(1)'};
-        transition: transform 120ms ease;
-      ">
-        <div style="
-          position: absolute;
-          inset: 0;
-          clip-path: path('M 15 34 C 12 29, 2 22, 2 14 C 2 6.5, 8 1, 15 1 C 22 1, 28 6.5, 28 14 C 28 22, 18 29, 15 34 Z');
-          background: ${tone.text};
-          box-shadow: ${ring} 0 8px 20px rgba(15, 23, 42, 0.30);
-        "></div>
-        <div style="
-          position: absolute;
-          left: 50%;
-          top: 47%;
-          transform: translate(-50%, -50%);
-          width: ${isSelected ? 16 : 14}px;
-          height: ${isSelected ? 16 : 14}px;
-          border-radius: 999px;
-          background: ${damageTone.color};
-          border: 3px solid #ffffff;
-          box-sizing: border-box;
-        "></div>
-        <div style="
-          position: absolute;
-          right: ${isSelected ? '1px' : '0px'};
-          top: ${isSelected ? '2px' : '3px'};
-          width: ${isSelected ? 9 : 8}px;
-          height: ${isSelected ? 9 : 8}px;
-          border-radius: 999px;
-          background: #ffffff;
-          border: 2px solid ${tone.text};
-          box-sizing: border-box;
-        "></div>
-      </div>
-    `,
-    iconSize: [width, height],
-    iconAnchor: [anchorX, anchorY],
-    popupAnchor: [0, -18],
-  });
-};
-
-const createClusterIcon = (count, dominantStatus) => {
-  const tone = getStatusColor(dominantStatus);
-
-  return L.divIcon({
-    className: 'road-admin-gis-cluster',
-    html: `
-      <div style="
-        width: 40px;
-        height: 40px;
-        border-radius: 999px;
-        display: grid;
-        place-items: center;
-        background: ${tone.text};
-        color: #ffffff;
-        border: 3px solid #ffffff;
-        font-size: 13px;
-        font-weight: 900;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.26);
-        transition: transform 140ms ease, box-shadow 140ms ease;
-      ">${count}</div>
-    `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -14],
-  });
-};
-
-function summarizeClusterStatuses(items) {
-  const counts = items.reduce((accumulator, item) => {
-    const status = item?.status || 'pending';
-    accumulator[status] = (accumulator[status] || 0) + 1;
-    return accumulator;
-  }, {});
-
-  const dominantStatus =
-    CLUSTER_STATUS_ORDER.reduce((bestStatus, status) => {
-      if (!bestStatus) {
-        return status;
-      }
-
-      return (counts[status] || 0) > (counts[bestStatus] || 0) ? status : bestStatus;
-    }, null) || 'pending';
-
-  return {
-    dominantStatus,
-    counts,
-  };
-}
-
-function getClusterStep(zoom) {
-  if (zoom <= 10) return 0.08;
-  if (zoom <= 12) return 0.04;
-  if (zoom <= 14) return 0.018;
-  if (zoom <= 15) return 0.009;
-  return 0;
-}
-
-function buildClusters(points, zoom) {
-  const step = getClusterStep(zoom);
-  if (!step) {
-    return points.map((point) => ({
-      type: 'point',
-      id: point.id,
-      latitude: point.latitude,
-      longitude: point.longitude,
-      items: [point],
-    }));
-  }
-
-  const groups = new Map();
-
-  points.forEach((point) => {
-    const latKey = Math.floor(point.latitude / step);
-    const lngKey = Math.floor(point.longitude / step);
-    const key = `${latKey}:${lngKey}`;
-
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-
-    groups.get(key).push(point);
-  });
-
-  return Array.from(groups.entries()).map(([key, items]) => {
-    if (items.length === 1) {
-      const [point] = items;
-      return {
-        type: 'point',
-        id: point.id,
-        latitude: point.latitude,
-        longitude: point.longitude,
-        items,
-      };
-    }
-
-    const latitude = items.reduce((sum, item) => sum + item.latitude, 0) / items.length;
-    const longitude = items.reduce((sum, item) => sum + item.longitude, 0) / items.length;
-
-    return {
-      type: 'cluster',
-      id: `cluster-${key}`,
-      latitude,
-      longitude,
-      items,
-    };
-  });
-}
-
-function MapViewportBridge({ center, zoom, onViewportChange, onZoomChange }) {
-  const map = useMap();
-  const initializedRef = useRef(false);
-  const debounceTimerRef = useRef(null);
-  const lastViewportSignatureRef = useRef('');
-  const lastZoomRef = useRef(zoom);
-
-  const emitViewportChange = () => {
-    if (debounceTimerRef.current) {
-      window.clearTimeout(debounceTimerRef.current);
-    }
-
-    debounceTimerRef.current = window.setTimeout(() => {
-      const bounds = map.getBounds();
-      const currentCenter = map.getCenter();
-      const nextZoom = map.getZoom();
-      const nextSignature = [
-        currentCenter.lat.toFixed(5),
-        currentCenter.lng.toFixed(5),
-        nextZoom,
-        bounds.getSouthWest().lat.toFixed(5),
-        bounds.getSouthWest().lng.toFixed(5),
-        bounds.getNorthEast().lat.toFixed(5),
-        bounds.getNorthEast().lng.toFixed(5),
-      ].join(':');
-
-      if (lastViewportSignatureRef.current === nextSignature) {
-        return;
-      }
-
-      lastViewportSignatureRef.current = nextSignature;
-
-      onViewportChange?.({
-        center: {
-          latitude: currentCenter.lat,
-          longitude: currentCenter.lng,
-        },
-        zoom: nextZoom,
-        bounds: {
-          southWest: {
-            lat: bounds.getSouthWest().lat,
-            lng: bounds.getSouthWest().lng,
-          },
-          northEast: {
-            lat: bounds.getNorthEast().lat,
-            lng: bounds.getNorthEast().lng,
-          },
-        },
-      });
-
-      if (lastZoomRef.current !== nextZoom) {
-        lastZoomRef.current = nextZoom;
-        onZoomChange?.(nextZoom);
-      }
-    }, VIEWPORT_DEBOUNCE_MS);
-  };
-
-  useEffect(() => {
-    if (initializedRef.current) {
-      return;
-    }
-
-    map.setView([center.latitude, center.longitude], zoom, { animate: false });
-    initializedRef.current = true;
-    emitViewportChange();
-  }, [center.latitude, center.longitude, map, zoom]);
-
-  useMapEvents({
-    moveend: emitViewportChange,
-    zoomend: emitViewportChange,
-  });
-
-  useEffect(
-    () => () => {
-      if (debounceTimerRef.current) {
-        window.clearTimeout(debounceTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  return null;
-}
-
-function MapFocusBridge({ focusTarget, fitBoundsTarget }) {
-  const map = useMap();
-  const lastFocusedRef = useRef('');
-  const lastFitRef = useRef('');
-  const fitSignature = fitBoundsTarget?.nonce ? String(fitBoundsTarget.nonce) : '';
-  const focusSignature = focusTarget?.id ? `${focusTarget.id}:${focusTarget.nonce ?? 0}` : '';
-
-  useEffect(() => {
-    if (
-      !fitBoundsTarget?.bounds?.southWest ||
-      !fitBoundsTarget?.bounds?.northEast ||
-      lastFitRef.current === fitSignature
-    ) {
-      return;
-    }
-
-    map.fitBounds(
-      [
-        [fitBoundsTarget.bounds.southWest.lat, fitBoundsTarget.bounds.southWest.lng],
-        [fitBoundsTarget.bounds.northEast.lat, fitBoundsTarget.bounds.northEast.lng],
-      ],
-      {
-        padding: [44, 44],
-        animate: true,
-        duration: 0.45,
-      },
-    );
-    lastFitRef.current = fitSignature;
-  }, [fitBoundsTarget, fitSignature, map]);
-
-  useEffect(() => {
-    if (!focusTarget?.id || lastFocusedRef.current === focusSignature) {
-      return;
-    }
-
-    map.setView([focusTarget.latitude, focusTarget.longitude], focusTarget.zoom ?? Math.max(map.getZoom(), 16), {
-      animate: true,
-    });
-    lastFocusedRef.current = focusSignature;
-  }, [focusTarget, focusSignature, map]);
-
-  return null;
-}
-
-function ClusterMarker({ cluster, onOpenDetail, onSelectPoint }) {
-  const map = useMap();
-  const clusterSummary = useMemo(() => summarizeClusterStatuses(cluster.items), [cluster.items]);
-  const statusEntries = CLUSTER_STATUS_ORDER.filter((status) => clusterSummary.counts[status]);
-
-  return (
-    <Marker
-      position={[cluster.latitude, cluster.longitude]}
-      icon={createClusterIcon(cluster.items.length, clusterSummary.dominantStatus)}
-      eventHandlers={{
-        click: () => {
-          const latitudes = cluster.items.map((item) => item.latitude);
-          const longitudes = cluster.items.map((item) => item.longitude);
-
-          map.fitBounds(
-            [
-              [Math.min(...latitudes), Math.min(...longitudes)],
-              [Math.max(...latitudes), Math.max(...longitudes)],
-            ],
-            {
-              padding: [44, 44],
-              animate: true,
-              duration: 0.45,
-              easeLinearity: 0.25,
-              maxZoom: Math.max(map.getZoom() + 1, 15),
-            },
-          );
-        },
-      }}
-    >
-      <Popup>
-        <div style={styles.clusterPopup}>
-          <strong style={styles.popupTitle}>{cluster.items.length} vị trí trong cụm này</strong>
-          <div style={styles.clusterSummaryRow}>
-            {statusEntries.map((status) => {
-              const tone = getStatusColor(status);
-
-              return (
-                <div
-                  key={status}
-                  style={{
-                    ...styles.clusterSummaryChip,
-                    color: tone.text,
-                    background: tone.background,
-                    borderColor: tone.border,
-                  }}
-                >
-                  <span>{tone.label}</span>
-                  <strong>{clusterSummary.counts[status]}</strong>
-                </div>
-              );
-            })}
-          </div>
-          <div style={styles.clusterList}>
-            {cluster.items.slice(0, 3).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  onSelectPoint?.(item);
-                  map.setView([item.latitude, item.longitude], Math.max(map.getZoom(), 16), {
-                    animate: true,
-                  });
-                }}
-                style={styles.clusterItemButton}
-              >
-                <span style={styles.clusterItemTitle}>
-                  {getEffectiveDamageType(item) || 'N/A'} - {item.damage_label || getEffectiveDamageTypeLabel(item)}
-                </span>
-                <span style={styles.clusterItemMeta}>
-                  {getStatusColor(item.status).label} · {formatDateTime(item.created_at)}
-                </span>
-              </button>
-            ))}
-          </div>
-          {cluster.items.length > 3 ? (
-            <span style={styles.clusterHint}>Còn {cluster.items.length - 3} vị trí khác. Zoom thêm để tách cụm.</span>
-          ) : null}
-        </div>
-      </Popup>
-    </Marker>
-  );
-}
+import { memo, useEffect, useMemo, useState } from 'react';
+import { MapContainer, Marker, TileLayer, ZoomControl } from 'react-leaflet';
+import { UI_COLORS } from '../constants/statusColors';
+import { getEffectiveDamageType } from '../utils/reportDamage';
+import {
+  DEFAULT_ZOOM,
+  MIN_ZOOM,
+  MAX_ZOOM,
+  MIN_VISIBLE_ZOOM,
+  buildScreenClusters,
+  createPointIcon,
+} from '../utils/mapClusteringUtils';
+import { MapViewportBridge, MapFocusBridge, ZoomLevelIndicator } from './gis/MapBridges';
+import ClusterMarker from './gis/ClusterMarker';
+import MapDetailCard from './gis/MapDetailCard';
 
 function WebGisMap({
   items = [],
+  serverClusters = null,
   initialLoading = false,
   refreshing = false,
   error = '',
@@ -402,6 +27,7 @@ function WebGisMap({
   onViewportChange,
   onOpenDetail,
   onSelectPoint,
+  onCloseDetail,
   selectedReportId = null,
   selectedReport = null,
   focusTarget = null,
@@ -409,7 +35,63 @@ function WebGisMap({
 }) {
   const safeItems = Array.isArray(items) ? items : [];
   const [activeZoom, setActiveZoom] = useState(zoom);
-  const clusters = useMemo(() => buildClusters(safeItems, activeZoom), [safeItems, activeZoom]);
+
+  useEffect(() => {
+    setActiveZoom(zoom);
+  }, [zoom]);
+
+  const clusters = useMemo(() => {
+    // 1. Khi phóng to ra ngoài / zoom xa (activeZoom < MIN_VISIBLE_ZOOM), ẩn toàn bộ
+    if (activeZoom < MIN_VISIBLE_ZOOM) {
+      return [];
+    }
+
+    // 2. Thuật toán gom cụm thông minh theo khoảng cách pixel màn hình trên danh sách điểm:
+    if (safeItems.length > 0) {
+      return buildScreenClusters(safeItems, activeZoom);
+    }
+
+    // 3. Fallback khi safeItems chưa tải xong nhưng có serverClusters
+    if (Array.isArray(serverClusters) && serverClusters.length > 0) {
+      const result = [];
+      serverClusters.forEach((sc, idx) => {
+        if (sc.cluster_id !== null && sc.cluster_id !== undefined && sc.count > 1) {
+          const lat = sc.center_latitude ?? sc.centroid_geojson?.coordinates?.[1];
+          const lng = sc.center_longitude ?? sc.centroid_geojson?.coordinates?.[0];
+          if (lat && lng) {
+            result.push({
+              type: 'cluster',
+              id: `dbscan-cluster-${sc.cluster_id ?? idx}`,
+              latitude: lat,
+              longitude: lng,
+              count: sc.count,
+              items: Array.isArray(sc.items) ? sc.items : Array(sc.count).fill({ status: 'pending' }),
+              isServerCluster: true,
+            });
+          }
+        } else if (Array.isArray(sc.noise_points)) {
+          sc.noise_points.forEach((np) => {
+            if (np.latitude && np.longitude) {
+              result.push({
+                type: 'point',
+                id: np.id,
+                latitude: np.latitude,
+                longitude: np.longitude,
+                status: np.status,
+                damage_type: np.damage_type,
+                count: 1,
+                items: [np],
+              });
+            }
+          });
+        }
+      });
+      return result;
+    }
+
+    return [];
+  }, [safeItems, serverClusters, activeZoom]);
+
   return (
     <div className="road-admin-map-canvas" style={styles.mapCanvas}>
       <MapContainer
@@ -422,14 +104,17 @@ function WebGisMap({
         zoomAnimation={false}
         fadeAnimation={false}
         markerZoomAnimation={false}
+        zoomControl={false}
         style={styles.mapContainer}
       >
+        <ZoomControl position="bottomright" />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          updateWhenIdle
-          updateWhenZooming={false}
-          keepBuffer={6}
+          subdomains="abc"
+          maxZoom={19}
+          keepBuffer={10}
+          updateWhenIdle={false}
         />
 
         <MapViewportBridge
@@ -439,9 +124,12 @@ function WebGisMap({
           onZoomChange={setActiveZoom}
         />
         <MapFocusBridge focusTarget={focusTarget} fitBoundsTarget={fitBoundsTarget} />
+        <ZoomLevelIndicator activeZoom={activeZoom} totalCount={safeItems.length} />
 
         {clusters.map((cluster) => {
-          if (cluster.type === 'cluster') {
+          const isCluster = cluster.type === 'cluster' && cluster.count > 1;
+
+          if (isCluster) {
             return (
               <ClusterMarker
                 key={cluster.id}
@@ -452,7 +140,7 @@ function WebGisMap({
             );
           }
 
-          const point = cluster.items[0];
+          const point = cluster.items?.[0] || cluster;
           const damageType = getEffectiveDamageType(point);
           return (
             <Marker
@@ -460,7 +148,12 @@ function WebGisMap({
               position={[point.latitude, point.longitude]}
               icon={createPointIcon(point.status, damageType, point.id === selectedReportId)}
               eventHandlers={{
-                click: () => onSelectPoint?.(point),
+                click: (e) => {
+                  onSelectPoint?.(point);
+                  if (e?.target?._map) {
+                    e.target._map.panTo([point.latitude, point.longitude], { animate: true, duration: 0.35 });
+                  }
+                },
               }}
             />
           );
@@ -496,58 +189,11 @@ function WebGisMap({
         </div>
       ) : null}
 
-      {selectedReport ? (
-        <div style={styles.detailCard}>
-          {selectedReport.image_url ? (
-            <img
-              src={getMapImageUrl(selectedReport.image_url)}
-              alt={selectedReport.id}
-              style={styles.detailImage}
-            />
-          ) : null}
-          <div style={styles.detailBody}>
-            <div style={styles.detailBadgeRow}>
-              <span style={styles.detailDamageBadge}>
-                {(getEffectiveDamageType(selectedReport) || 'N/A')} - {selectedReport.damage_label || getEffectiveDamageTypeLabel(selectedReport)}
-              </span>
-              <span
-                style={{
-                  ...styles.detailStatusBadge,
-                  color: getStatusColor(selectedReport.status).text,
-                  background: getStatusColor(selectedReport.status).background,
-                  borderColor: getStatusColor(selectedReport.status).border,
-                }}
-              >
-                {getStatusColor(selectedReport.status).label}
-              </span>
-            </div>
-            <strong style={styles.detailTitle}>Vị trí hư hỏng đã chọn</strong>
-            <div style={styles.detailMetaRow}>
-              <span style={styles.detailMetaItem}>
-                <FiClock size={14} />
-                {formatDateTime(selectedReport.created_at)}
-              </span>
-              <span style={styles.detailMetaItem}>
-                <FiMapPin size={14} />
-                {formatConfidence(selectedReport.confidence)}
-              </span>
-            </div>
-            {selectedReport.note?.trim() ? (
-              <div style={styles.detailNote}>{selectedReport.note.trim()}</div>
-            ) : null}
-            <div style={styles.detailActions}>
-              <button
-                type="button"
-                onClick={() => onOpenDetail?.(selectedReport.id)}
-                style={styles.detailButton}
-              >
-                <FiExternalLink size={15} />
-                Xem chi tiết
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <MapDetailCard
+        selectedReport={selectedReport}
+        onCloseDetail={onCloseDetail}
+        onOpenDetail={onOpenDetail}
+      />
     </div>
   );
 }
@@ -650,162 +296,5 @@ const styles = {
     borderRadius: 999,
     background: UI_COLORS.primary,
     display: 'inline-block',
-  },
-  clusterPopup: {
-    display: 'grid',
-    gap: 8,
-    width: 'min(80vw, 260px)',
-    minWidth: 0,
-  },
-  clusterSummaryRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  clusterSummaryChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    padding: '0 10px',
-    borderRadius: 999,
-    border: '1px solid transparent',
-    fontSize: 12,
-    fontWeight: 800,
-  },
-  clusterList: {
-    display: 'grid',
-    gap: 6,
-  },
-  clusterItemButton: {
-    width: '100%',
-    padding: '8px 10px',
-    borderRadius: 8,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    fontSize: 12,
-    fontWeight: 700,
-    textAlign: 'left',
-    cursor: 'pointer',
-    display: 'grid',
-    gap: 4,
-  },
-  clusterItemTitle: {
-    color: UI_COLORS.text,
-    fontSize: 12,
-    fontWeight: 800,
-    lineHeight: 1.4,
-  },
-  clusterItemMeta: {
-    color: UI_COLORS.textMuted,
-    fontSize: 11,
-    lineHeight: 1.35,
-  },
-  clusterHint: {
-    color: UI_COLORS.textMuted,
-    fontSize: 11,
-    lineHeight: 1.4,
-  },
-  detailCard: {
-    position: 'absolute',
-    right: 18,
-    bottom: 18,
-    zIndex: 620,
-    width: 'min(360px, calc(100% - 36px))',
-    display: 'grid',
-    gap: 0,
-    borderRadius: 20,
-    overflow: 'hidden',
-    background: 'rgba(255,255,255,0.98)',
-    border: `1px solid ${UI_COLORS.border}`,
-    boxShadow: '0 18px 42px rgba(15, 23, 42, 0.22)',
-    backdropFilter: 'blur(10px)',
-  },
-  detailImage: {
-    width: '100%',
-    height: 150,
-    objectFit: 'cover',
-    display: 'block',
-    borderBottom: `1px solid ${UI_COLORS.border}`,
-  },
-  detailBody: {
-    display: 'grid',
-    gap: 12,
-    padding: 16,
-  },
-  detailBadgeRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  detailDamageBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    minHeight: 28,
-    padding: '0 10px',
-    borderRadius: 999,
-    background: '#EAF2FF',
-    color: UI_COLORS.primaryDark,
-    fontSize: 11,
-    fontWeight: 900,
-  },
-  detailStatusBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    minHeight: 28,
-    padding: '0 10px',
-    borderRadius: 999,
-    border: '1px solid transparent',
-    fontSize: 11,
-    fontWeight: 900,
-  },
-  detailTitle: {
-    color: UI_COLORS.text,
-    fontSize: 18,
-    fontWeight: 900,
-    lineHeight: 1.35,
-  },
-  detailMetaRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  detailMetaItem: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    color: UI_COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: 700,
-  },
-  detailNote: {
-    color: UI_COLORS.textMuted,
-    fontSize: 13,
-    lineHeight: 1.5,
-    display: '-webkit-box',
-    WebkitLineClamp: 3,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
-  },
-  detailActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  detailButton: {
-    minHeight: 38,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: '0 14px',
-    border: 'none',
-    borderRadius: 10,
-    background: UI_COLORS.primary,
-    color: UI_COLORS.surface,
-    fontSize: 13,
-    fontWeight: 900,
-    cursor: 'pointer',
   },
 };

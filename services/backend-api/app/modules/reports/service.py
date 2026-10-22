@@ -8,11 +8,13 @@ import re
 from time import perf_counter
 from uuid import uuid4
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 
 from app.config import Settings
+from app.database import get_connection
 from app.modules.auth.schemas import AuthUser
+from app.modules.gis.geocoding_service import GeocodingAddress, ReverseGeocodingService
 from app.modules.reports.ai_client import AiServiceClient, AiServiceError
 from app.modules.reports.repository import ReportRepository
 from app.modules.reports.schemas import (
@@ -22,11 +24,50 @@ from app.modules.reports.schemas import (
 )
 
 
+async def geocode_report_background(
+    report_id: str,
+    latitude: float,
+    longitude: float,
+    settings: Settings,
+) -> GeocodingAddress:
+    started_at = perf_counter()
+    with get_connection() as connection:
+        repository = ReportRepository(connection)
+        geocoding_service = ReverseGeocodingService(
+            settings=settings,
+            repository=repository,
+        )
+        address = await geocoding_service.reverse_geocode(latitude, longitude)
+        repository.update_report_administrative_address(
+            report_id,
+            road_name=address.road_name,
+            ward=address.ward,
+            district=address.district,
+            province=address.province,
+            formatted_address=address.formatted_address,
+        )
+        elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
+        logger.info(
+            "Background geocoding completed in %.2fms for report %s: %s (source=%s)",
+            elapsed_ms,
+            report_id,
+            address.formatted_address,
+            address.source,
+        )
+        return address
+
+
 REPORT_STATUS_PENDING_VERIFICATION = "pending_verification"
 AI_STATUS_SUCCESS = "success"
 AI_STATUS_MANUAL_REVIEW_REQUIRED = "manual_review_required"
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
-ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_IMAGE_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/pjpeg",
+}
 logger = logging.getLogger(__name__)
 PREVIEW_TOKEN_TTL_SECONDS = 10 * 60
 LOCATION_SOURCE_CAMERA_GPS = "camera_gps"
@@ -65,8 +106,10 @@ class ReportService:
         gps_accuracy: float | None,
         location_source: str | None,
         location_recorded_at: str | None,
+        image_source: str | None = "camera_live",
         note: str | None,
         preview_token: str | None,
+        background_tasks: BackgroundTasks | None = None,
     ) -> ReporterReportResponse:
         started_at = perf_counter()
         self._validate_coordinates(latitude, longitude)
@@ -127,6 +170,16 @@ class ReportService:
             created_at=now,
             updated_at=now,
         )
+
+        if background_tasks is not None:
+            background_tasks.add_task(
+                geocode_report_background,
+                report_id=report_id,
+                latitude=latitude,
+                longitude=longitude,
+                settings=self.settings,
+            )
+
         logger.info(
             "Created report %s for user %s in %.2fms (ai_status=%s, detections=%s)",
             report_id,
@@ -205,6 +258,8 @@ class ReportService:
 
     def _resolve_content_type(self, content_type: str | None) -> str:
         normalized = (content_type or "").lower().strip()
+        if normalized in ("image/jpg", "image/pjpeg"):
+            return "image/jpeg"
         return normalized if normalized in ALLOWED_IMAGE_CONTENT_TYPES else "image/jpeg"
 
     def _build_image_hash(self, image_bytes: bytes) -> str:

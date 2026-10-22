@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { FiAlertCircle, FiBarChart2, FiGrid, FiList, FiMap, FiUser, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiBarChart2, FiGrid, FiList, FiMap, FiUser, FiUsers, FiX } from 'react-icons/fi';
 import { UI_COLORS } from '../constants/statusColors';
 
 const SIDEBAR_ICON_SIZE = 24;
@@ -10,6 +10,7 @@ const menuItems = [
   { label: 'Danh sách báo cáo', path: '/reports', icon: FiList },
   { label: 'Ảnh cần kiểm tra thêm', path: '/reports/manual-review', icon: FiAlertCircle },
   { label: 'Thống kê', path: '/statistics', icon: FiBarChart2 },
+  { label: 'Quản lý tài khoản', path: '/users', icon: FiUsers },
   { label: 'Tài khoản', path: '/account', icon: FiUser },
 ];
 

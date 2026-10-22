@@ -3,27 +3,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.config import Settings, get_settings
 from app.database import get_connection
-from app.modules.auth.dependencies import get_admin_user, get_current_user, get_engineer_user
+from app.modules.auth.dependencies import (
+    enforce_spatial_district_access,
+    get_admin_user,
+    get_current_user,
+    get_engineer_user,
+    verify_report_spatial_access,
+)
 from app.modules.auth.schemas import AuthUser
 from app.modules.auth.repository import AuthRepository
 from app.modules.reports.ai_client import AiServiceClient
-from app.modules.reports.repository import ReportRepository
+from app.modules.reports.repository import CHECKIN_NEAR_THRESHOLD_METERS, ReportRepository
 from app.modules.reports.schemas import (
     AdminAssignEngineerRequest,
     AdminDashboardResponse,
     AdminReportListResponse,
     AdminReportResponse,
+    AdministrativeStatsResponse,
     AiDetectionResult,
     AiPreviewDetectionResult,
+    DamageClustersResponse,
     EngineerCheckInRequest,
     EngineerReportListResponse,
     EngineerReportResponse,
     EngineerSurveyRequest,
     EngineerTimelineResponse,
+    NearbyReportsResponse,
     ReporterReportListResponse,
     ReporterReportResponse,
     UpdateReportDamageTypeRequest,
@@ -54,12 +63,14 @@ def get_report_service(
 
 @router.post("/reports", response_model=ReporterReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
+    background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     latitude: float = Form(...),
     longitude: float = Form(...),
     gps_accuracy: float = Form(...),
     location_source: str | None = Form(default="camera_gps"),
     location_recorded_at: str | None = Form(default=None),
+    image_source: str | None = Form(default="camera_live"),
     note: str | None = Form(default=None),
     preview_token: str | None = Form(default=None),
     service: ReportService = Depends(get_report_service),
@@ -74,8 +85,10 @@ async def create_report(
             gps_accuracy=gps_accuracy,
             location_source=location_source,
             location_recorded_at=location_recorded_at,
+            image_source=image_source,
             note=note,
             preview_token=preview_token,
+            background_tasks=background_tasks,
         )
     finally:
         await image.close()
@@ -109,6 +122,54 @@ def list_report_history(
     return ReporterReportListResponse(items=items, total=total)
 
 
+@router.get("/engineer/reports/nearby", response_model=NearbyReportsResponse)
+@router.get("/reports/nearby", response_model=NearbyReportsResponse)
+def get_nearby_reports(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
+    radius_meters: float = Query(default=200.0, ge=10.0, le=5000.0),
+    status: str | None = Query(default=None),
+    exclude_repaired: bool = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: AuthUser = Depends(get_current_user),
+) -> NearbyReportsResponse:
+    with get_connection() as connection:
+        items = ReportRepository(connection).list_nearby_reports(
+            latitude=latitude,
+            longitude=longitude,
+            radius_meters=radius_meters,
+            status=status,
+            exclude_repaired=exclude_repaired,
+            limit=limit,
+        )
+    return NearbyReportsResponse(
+        items=items,
+        total=len(items),
+        center_latitude=latitude,
+        center_longitude=longitude,
+        radius_meters=radius_meters,
+    )
+
+
+@router.get("/reports/clusters", response_model=DamageClustersResponse)
+@router.get("/admin/reports/clusters", response_model=DamageClustersResponse)
+def get_damage_clusters(
+    eps: float = Query(default=0.001, gt=0.0, le=0.05),
+    min_points: int = Query(default=3, ge=2, le=50),
+    status: str | None = Query(default=None),
+    district: str | None = Query(default=None),
+    ward: str | None = Query(default=None),
+) -> DamageClustersResponse:
+    with get_connection() as connection:
+        return ReportRepository(connection).get_damage_clusters(
+            eps=eps,
+            min_points=min_points,
+            status=status,
+            district=district,
+            ward=ward,
+        )
+
+
 @router.get("/reports/{report_id}", response_model=ReporterReportResponse)
 def get_report(
     report_id: str,
@@ -134,8 +195,14 @@ def list_admin_reports(
     damage_type: str | None = None,
     search: str | None = None,
     ai_status: str | None = None,
+    district: str | None = None,
+    ward: str | None = None,
+    road_name: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminReportListResponse:
+    effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
         items, total = ReportRepository(connection).list_reports(
             limit=limit,
@@ -144,6 +211,11 @@ def list_admin_reports(
             damage_type=damage_type,
             search=search,
             ai_status=ai_status,
+            district=effective_district,
+            ward=ward,
+            road_name=road_name,
+            from_date=from_date,
+            to_date=to_date,
             include_admin_fields=True,
         )
 
@@ -152,10 +224,34 @@ def list_admin_reports(
 
 @router.get("/admin/dashboard", response_model=AdminDashboardResponse)
 def get_admin_dashboard(
+    district: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminDashboardResponse:
+    effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
-        return ReportRepository(connection).get_admin_dashboard()
+        return ReportRepository(connection).get_admin_dashboard(
+            district=effective_district,
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+
+@router.get("/admin/dashboard/administrative-stats", response_model=AdministrativeStatsResponse)
+def get_admin_dashboard_administrative_stats(
+    district: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    current_user: AuthUser = Depends(get_admin_user),
+) -> AdministrativeStatsResponse:
+    effective_district = enforce_spatial_district_access(current_user, district)
+    with get_connection() as connection:
+        return ReportRepository(connection).get_administrative_stats(
+            district=effective_district,
+            from_date=from_date,
+            to_date=to_date,
+        )
 
 
 @router.get("/admin/reports/{report_id}", response_model=AdminReportResponse)
@@ -171,6 +267,8 @@ def get_admin_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Không tìm thấy phản ánh.",
         )
+
+    verify_report_spatial_access(current_user, report.district, action_description="truy cập")
 
     return report
 
@@ -190,6 +288,8 @@ def update_admin_report_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Không tìm thấy phản ánh.",
             )
+
+        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
 
         updated_report = repository.update_report_status(
             report_id,
@@ -223,6 +323,8 @@ def update_admin_report_damage_type(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Không tìm thấy phản ánh.",
             )
+
+        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
 
         updated_report = repository.update_report_damage_type(
             report_id,
@@ -350,25 +452,65 @@ def release_engineer_claim(
 
 
 @router.post("/engineer/reports/{report_id}/check-in", response_model=EngineerReportResponse)
+@router.post("/engineer/tasks/{report_id}/check-in", response_model=EngineerReportResponse)
 def check_in_engineer_report(
     report_id: str,
     payload: EngineerCheckInRequest = Body(...),
     current_user: AuthUser = Depends(get_engineer_user),
 ) -> EngineerReportResponse:
+    if payload.is_mocked:
+        with get_connection() as connection:
+            ReportRepository(connection).log_rejected_check_in(
+                report_id=report_id,
+                engineer_id=current_user.id,
+                reason="mock_location_detected",
+                payload=payload.model_dump(),
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phát hiện tọa độ giả lập (Mock Location). Yêu cầu tắt các ứng dụng can thiệp GPS.",
+        )
+
     with get_connection() as connection:
-        report = ReportRepository(connection).check_in_engineer_report(
+        repo = ReportRepository(connection)
+        server_distance = repo.calculate_report_distance(
+            report_id=report_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+        )
+        if server_distance is not None and server_distance > CHECKIN_NEAR_THRESHOLD_METERS:
+            repo.log_rejected_check_in(
+                report_id=report_id,
+                engineer_id=current_user.id,
+                reason="distance_exceeded",
+                payload={
+                    **payload.model_dump(),
+                    "server_distance_meters": server_distance,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Từ chối check-in: Cự ly hiện tại ({round(server_distance, 1)}m) vượt quá bán kính tiếp cận cho phép (30m).",
+            )
+
+        report = repo.check_in_engineer_report(
             report_id,
             engineer_id=current_user.id,
             latitude=payload.latitude,
             longitude=payload.longitude,
             gps_accuracy=payload.gps_accuracy,
             source=payload.source,
+            is_mocked=payload.is_mocked,
+            client_distance_meters=payload.distance_meters,
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
     if report is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bạn chưa giữ quyền kiểm tra cho điểm này.")
     if report.field_checkin_quality == "invalid":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Vị trí check-in chưa hợp lệ hoặc GPS chưa đủ chính xác.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vị trí check-in chưa hợp lệ hoặc GPS chưa đủ chính xác.",
+        )
     return report
 
 
@@ -406,6 +548,8 @@ async def upload_engineer_survey_attachments(
     report_id: str,
     files: list[UploadFile] = File(...),
     note: str | None = Form(default=None),
+    image_source: str | None = Form(default="camera_live"),
+    captured_at: str | None = Form(default=None),
     current_user: AuthUser = Depends(get_engineer_user),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, list[dict]]:
@@ -447,11 +591,17 @@ def assign_engineer_to_report(
     current_user: AuthUser = Depends(get_admin_user),
 ) -> EngineerReportResponse:
     with get_connection() as connection:
+        report_repo = ReportRepository(connection)
+        existing_report = report_repo.get_report(report_id, include_admin_fields=True)
+        if existing_report is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phản ánh.")
+        verify_report_spatial_access(current_user, existing_report.district, action_description="phân công xử lý")
+
         auth_repository = AuthRepository(connection)
         engineer_row = auth_repository.get_user_by_id(payload.engineer_id)
         if engineer_row is None or engineer_row["role"].strip().lower() != "field_engineer":
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Kỹ sư hiện trường không hợp lệ.")
-        updated = ReportRepository(connection).assign_engineer(
+        updated = report_repo.assign_engineer(
             report_id,
             engineer_id=payload.engineer_id,
             actor_id=current_user.id,

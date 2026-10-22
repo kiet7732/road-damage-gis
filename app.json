@@ -2,15 +2,24 @@
   "expo": {
     "name": "road-damage-gis",
     "slug": "road-damage-gis",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.roaddamagegis.app"
     },
     "android": {
+      "package": "com.roaddamagegis.app",
+      "versionCode": 2,
+      "usesCleartextTraffic": true,
       "softwareKeyboardLayoutMode": "pan",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDummyKeyForDevelopmentAndMapTesting123"
+        }
+      },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

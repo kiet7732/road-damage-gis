@@ -1,7 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getFieldEngineerUiLabel } from '../../../../../packages/shared-constants/src/engineerLabels';
 import type { EngineerRootStackParamList } from '../../types/navigation';
 import { AppButton, colors, EmptyState, radius, spacing } from '../../shared/mobileShared';
@@ -16,20 +16,32 @@ type Props = NativeStackScreenProps<EngineerRootStackParamList, 'EngineerHistory
 export default function EngineerHistoryScreen({ navigation }: Props) {
   const [tasks, setTasks] = useState<EngineerTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const loadHistory = useCallback(async () => {
-    setIsLoading(true);
+  const loadHistory = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else if (tasks.length === 0) {
+      setIsLoading(true);
+    }
     setError('');
     try {
       setTasks(await fetchEngineerHistoryTasks());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('historyLoadErrorTitle'));
-      setTasks([]);
+      if (!isRefresh && tasks.length === 0) {
+        setTasks([]);
+      }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
-  }, []);
+  }, [tasks.length]);
+
+  const handleRefresh = useCallback(() => {
+    void loadHistory(true);
+  }, [loadHistory]);
 
   useFocusEffect(
     useCallback(() => {
@@ -62,16 +74,36 @@ export default function EngineerHistoryScreen({ navigation }: Props) {
       ) : null}
 
       {!isLoading && !error && tasks.length === 0 ? (
-        <View style={styles.stateWrap}>
+        <ScrollView
+          contentContainerStyle={styles.stateScrollWrap}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <EmptyState
             title={getFieldEngineerUiLabel('historyEmptyTitle')}
             description={getFieldEngineerUiLabel('historyEmpty')}
           />
-        </View>
+        </ScrollView>
       ) : null}
 
       {!isLoading && !error && tasks.length > 0 ? (
-        <ScrollView contentContainerStyle={styles.list}>
+        <ScrollView
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {tasks.map((task) => {
             const historyMeta = getHistoryMeta(task);
             return (
@@ -147,6 +179,11 @@ const styles = StyleSheet.create({
   },
   stateWrap: {
     flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  stateScrollWrap: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
   },

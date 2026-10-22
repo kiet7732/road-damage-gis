@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
@@ -21,18 +21,32 @@ type CapturedPhotoPreviewProps = {
 
 export default function CapturedPhotoPreview({
   photoUri,
-  height = 230,
+  height = 320,
   predictionLabel,
 }: CapturedPhotoPreviewProps) {
   const insets = useSafeAreaInsets();
   const { width, height: screenHeight } = useWindowDimensions();
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [photoZoom, setPhotoZoom] = useState(1);
+  const [photoNaturalSize, setPhotoNaturalSize] = useState({ width: 3, height: 4 });
+
+  useEffect(() => {
+    if (!photoUri) return;
+    Image.getSize(
+      photoUri,
+      (imgWidth, imgHeight) => {
+        if (imgWidth > 0 && imgHeight > 0) {
+          setPhotoNaturalSize({ width: imgWidth, height: imgHeight });
+        }
+      },
+      () => {},
+    );
+  }, [photoUri]);
 
   const fittedImageSize = useMemo(() => {
     const maxWidth = width - spacing.xl * 2;
     const maxHeight = screenHeight - Math.max(insets.top, spacing.lg) - spacing.xl * 4;
-    const aspectRatio = 4 / 3;
+    const aspectRatio = photoNaturalSize.width / photoNaturalSize.height || 3 / 4;
 
     let fittedWidth = maxWidth;
     let fittedHeight = fittedWidth / aspectRatio;
@@ -46,7 +60,7 @@ export default function CapturedPhotoPreview({
       width: Math.max(220, fittedWidth),
       height: Math.max(220, fittedHeight),
     };
-  }, [insets.top, screenHeight, width]);
+  }, [insets.top, photoNaturalSize.height, photoNaturalSize.width, screenHeight, width]);
 
   const zoomedImageWidth = fittedImageSize.width * photoZoom;
   const zoomedImageHeight = fittedImageSize.height * photoZoom;
@@ -64,7 +78,14 @@ export default function CapturedPhotoPreview({
         onPress={openViewer}
         style={({ pressed }) => [styles.photoCard, { height }, pressed && styles.photoCardPressed]}
       >
-        <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
+        <Image
+          source={{ uri: photoUri }}
+          style={StyleSheet.absoluteFillObject}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+        <View style={styles.photoBackdropOverlay} />
+        <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="contain" />
         {predictionLabel ? (
           <View style={styles.detectOverlay}>
             <Text selectable numberOfLines={1} ellipsizeMode="tail" style={styles.detectLabel}>
@@ -180,12 +201,18 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: '#0F172A',
     borderWidth: 1,
     borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   photoCardPressed: {
     opacity: 0.95,
+  },
+  photoBackdropOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
   photo: {
     width: '100%',

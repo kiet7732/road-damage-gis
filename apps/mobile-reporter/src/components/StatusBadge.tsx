@@ -30,8 +30,8 @@ export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
         containerSize={isSmall ? 18 : 20}
       />
       <Text
-        selectable
         numberOfLines={1}
+        ellipsizeMode="tail"
         style={[
           styles.label,
           isSmall && styles.labelSmall,
@@ -48,6 +48,7 @@ export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
 
 const styles = StyleSheet.create({
   badge: {
+    flexShrink: 0,
     minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
@@ -58,15 +59,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeSmall: {
+    flexShrink: 0,
     minHeight: 28,
     paddingHorizontal: 9,
     gap: 5,
   },
   label: {
+    flexShrink: 0,
     fontSize: 12,
     fontWeight: '900',
   },
   labelSmall: {
+    flexShrink: 0,
     fontSize: 11,
   },
 });

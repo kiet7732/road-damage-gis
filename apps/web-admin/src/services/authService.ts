@@ -7,7 +7,14 @@ import {
   WEB_ADMIN_AUTH_CONTEXT_VALUE,
 } from './configureApiClient';
 
-export type AdminRole = 'admin' | 'manager' | 'staff' | 'officer' | 'can_bo';
+export type AdminRole =
+  | 'admin'
+  | 'manager'
+  | 'staff'
+  | 'officer'
+  | 'can_bo'
+  | 'super_admin'
+  | 'district_officer';
 
 export type LoginPayload = {
   email: string;
@@ -20,6 +27,10 @@ export type AdminUser = {
   name?: string;
   email?: string;
   role?: string;
+  managedDistrict?: string | null;
+  managedWard?: string | null;
+  managed_district?: string | null;
+  managed_ward?: string | null;
 };
 
 export type LoginResponse = {
@@ -45,6 +56,8 @@ const ALLOWED_ADMIN_ROLES = new Set<string>([
   'staff',
   'officer',
   'can_bo',
+  'super_admin',
+  'district_officer',
 ]);
 
 export const isAllowedAdminRole = (role?: string): boolean => {
@@ -70,7 +83,10 @@ export const getLoginErrorMessage = (error: unknown): string => {
     }
 
     if (error.status === 403) {
-      return 'Tài khoản không có quyền truy cập hệ thống quản trị.';
+      return (
+        error.message ||
+        'Tài khoản này là tài khoản Ứng dụng Di động (Người dân/Kỹ sư), không được phép đăng nhập vào Web Quản lý. Vui lòng sử dụng Ứng dụng Di động.'
+      );
     }
 
     if (error.status && error.status >= 500) {
@@ -102,13 +118,15 @@ export const loginAdmin = async (payload: LoginPayload): Promise<AdminSession> =
 
   if (!response.user || !isAllowedAdminRole(response.user.role)) {
     throw new ApiClientError({
-      message: 'Tài khoản không có quyền truy cập hệ thống quản trị.',
+      message:
+        'Tài khoản này là tài khoản Ứng dụng Di động (Người dân/Kỹ sư), không được phép đăng nhập vào Web Quản lý. Vui lòng sử dụng Ứng dụng Di động.',
       status: 403,
       code: 'FORBIDDEN',
       details: response.user,
     });
   }
 
+  cachedAdminUser = response.user;
   return {
     user: response.user,
   };
@@ -125,16 +143,19 @@ export const fetchCurrentAdminUser = async (): Promise<AdminUser> => {
 
   if (!isAllowedAdminRole(user.role)) {
     throw new ApiClientError({
-      message: 'Tài khoản không có quyền truy cập hệ thống quản trị.',
+      message:
+        'Tài khoản này là tài khoản Ứng dụng Di động (Người dân/Kỹ sư), không được phép đăng nhập vào Web Quản lý. Vui lòng sử dụng Ứng dụng Di động.',
       status: 403,
       code: 'FORBIDDEN',
       details: user,
     });
   }
+  cachedAdminUser = user;
   return user;
 };
 
 export const logoutAdmin = async (): Promise<void> => {
+  cachedAdminUser = null;
   try {
     await api.post(
       '/auth/logout',
@@ -150,6 +171,28 @@ export const logoutAdmin = async (): Promise<void> => {
   } catch {
     // Không chặn logout phía client.
   }
+};
+
+export type ChangePasswordPayload = {
+  currentPassword: string;
+  newPassword: string;
+};
+
+export const changeAdminPassword = async (payload: ChangePasswordPayload): Promise<{ message: string }> => {
+  return api.post(
+    '/auth/change-password',
+    {
+      currentPassword: payload.currentPassword,
+      newPassword: payload.newPassword,
+    },
+    {
+      suppressGlobalError: true,
+      withCredentials: true,
+      headers: {
+        [WEB_ADMIN_AUTH_CONTEXT_HEADER]: WEB_ADMIN_AUTH_CONTEXT_VALUE,
+      },
+    },
+  );
 };
 
 export const bootstrapAdminSession =
@@ -180,4 +223,10 @@ export const bootstrapAdminSession =
   }
 };
 
-export const getCachedAdminUser = (): AdminUser | null => null;
+let cachedAdminUser: AdminUser | null = null;
+
+export const setCachedAdminUser = (user: AdminUser | null): void => {
+  cachedAdminUser = user;
+};
+
+export const getCachedAdminUser = (): AdminUser | null => cachedAdminUser;

@@ -200,8 +200,11 @@ const RoadDamageMapView = forwardRef<RoadDamageMapHandle, RoadDamageMapViewProps
           zoomControl={false}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            subdomains="abc"
+            maxZoom={19}
+            keepBuffer={8}
           />
 
           <MapBridge

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     service_url: str = Field(default="http://localhost:8001", alias="AI_SERVICE_URL")
     api_prefix: str = Field(default="/api/ai", alias="AI_API_PREFIX")
     model_path: str = Field(
-        default="./models/yolo12s_800px_seed0_best.pt",
+        default="./models/best_26s_rdd_vn.pt",
         alias="AI_MODEL_PATH",
     )
     image_size: int = Field(default=1216, alias="AI_IMAGE_SIZE")

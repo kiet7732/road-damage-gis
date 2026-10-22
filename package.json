@@ -32,9 +32,11 @@
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-web": "^0.21.2",
+    "react-native-webview": "13.15.0",
     "react-native-worklets": "0.5.1",
     "react-router-dom": "^7.18.2",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "expo start",
@@ -42,8 +44,8 @@
     "check:workspace": "npm run check:types",
     "start:reporter": "powershell -ExecutionPolicy Bypass -Command \"$env:EXPO_PUBLIC_APP_TARGET='reporter'; expo start\"",
     "start:engineer": "powershell -ExecutionPolicy Bypass -Command \"$env:EXPO_PUBLIC_APP_TARGET='engineer'; expo start\"",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "web:reporter": "powershell -ExecutionPolicy Bypass -Command \"$env:EXPO_PUBLIC_APP_TARGET='reporter'; expo start --web\"",
     "web:engineer": "powershell -ExecutionPolicy Bypass -Command \"$env:EXPO_PUBLIC_APP_TARGET='engineer'; expo start --web\"",
@@ -53,6 +55,9 @@
     "ios:engineer": "powershell -ExecutionPolicy Bypass -Command \"$env:EXPO_PUBLIC_APP_TARGET='engineer'; expo start --ios\"",
     "dev:web": "expo start --web --port 8081",
     "dev:web-admin": "vite --config apps/web-admin/vite.config.ts --host 0.0.0.0 --port 5173",
+    "build:web-admin": "vite build --config apps/web-admin/vite.config.ts",
+    "preview:web-admin": "vite preview --config apps/web-admin/vite.config.ts",
+    "serve:web-admin": "npm run build:web-admin && npm run preview:web-admin",
     "dev:services": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-services.ps1",
     "dev:backend": "powershell -ExecutionPolicy Bypass -File ./scripts/run-backend.ps1",
     "dev:ai": "powershell -ExecutionPolicy Bypass -File ./scripts/run-ai.ps1",
@@ -64,7 +69,12 @@
     "qa:e2e:mobile-admin-list": "powershell -ExecutionPolicy Bypass -Command \"$env:PYTHONPATH=(Resolve-Path './services/backend-api').Path; python ./services/backend-api/scripts/run_mobile_to_admin_list_e2e.py\"",
     "qa:e2e:mobile-admin-map": "powershell -ExecutionPolicy Bypass -Command \"$env:PYTHONPATH=(Resolve-Path './services/backend-api').Path; python ./services/backend-api/scripts/run_mobile_to_admin_map_e2e.py\"",
     "qa:e2e:admin-status-mobile": "powershell -ExecutionPolicy Bypass -Command \"$env:PYTHONPATH=(Resolve-Path './services/backend-api').Path; python ./services/backend-api/scripts/run_admin_status_to_mobile_e2e.py\"",
-    "qa:e2e:manual-review": "powershell -ExecutionPolicy Bypass -Command \"$env:PYTHONPATH=(Resolve-Path './services/backend-api').Path; python ./services/backend-api/scripts/run_manual_review_e2e.py\""
+    "qa:e2e:manual-review": "powershell -ExecutionPolicy Bypass -Command \"$env:PYTHONPATH=(Resolve-Path './services/backend-api').Path; python ./services/backend-api/scripts/run_manual_review_e2e.py\"",
+    "nominatim:up": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-nominatim.ps1 -Action up",
+    "nominatim:down": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-nominatim.ps1 -Action down",
+    "nominatim:status": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-nominatim.ps1 -Action status",
+    "nominatim:logs": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-nominatim.ps1 -Action logs",
+    "nominatim:test": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-nominatim.ps1 -Action test"
   },
   "private": true,
   "devDependencies": {

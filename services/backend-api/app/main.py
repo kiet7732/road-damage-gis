@@ -1,11 +1,20 @@
+from typing import Any
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.database import check_database_ready, init_database
+from app.database import (
+    check_database_health,
+    check_database_ready,
+    close_postgres_pool,
+    get_postgres_pool,
+    init_database,
+)
+from app.modules.auth.admin_users_router import router as admin_users_router
 from app.modules.auth.router import router as auth_router
 from app.modules.gis.router import router as gis_router
 from app.modules.reports.router import router as reports_router
@@ -28,12 +37,43 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.middleware("http")
+async def check_maintenance_mode(request: Request, call_next: Any) -> Any:
+    current_settings = get_settings()
+    if (current_settings.maintenance_mode or current_settings.read_only_mode) and request.method in (
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ):
+        path = request.url.path
+        if not (path.endswith("/ready") or path.endswith("/health")):
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status": "maintenance",
+                    "code": "MAINTENANCE_MODE",
+                    "detail": "Hệ thống đang trong quá trình bảo trì chuyển đổi cơ sở dữ liệu (Database Cutover). Chức năng ghi tạm thời bị khóa trong ít phút.",
+                },
+            )
+    return await call_next(request)
+
 
 
 @app.on_event("startup")
 def on_startup() -> None:
+    if settings.gis_backend == "postgis":
+        get_postgres_pool(settings)
     init_database()
     settings.resolved_upload_dir.mkdir(parents=True, exist_ok=True)
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    close_postgres_pool()
 
 
 def _error_code_from_status(status_code: int) -> str:
@@ -121,6 +161,13 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
+@app.get("/health/db")
+def database_health_check() -> JSONResponse:
+    health = check_database_health()
+    status_code = status.HTTP_200_OK if health.get("ready") else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=health)
+
+
 @app.get("/ready")
 def readiness_check() -> JSONResponse:
     try:
@@ -162,6 +209,7 @@ def readiness_check() -> JSONResponse:
 
 app.include_router(reports_router, prefix=settings.api_prefix)
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(admin_users_router, prefix=settings.api_prefix)
 app.include_router(gis_router, prefix=settings.api_prefix)
 app.mount(
     settings.normalized_upload_url_prefix,

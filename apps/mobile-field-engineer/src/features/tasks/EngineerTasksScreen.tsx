@@ -1,8 +1,9 @@
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   getFieldEngineerUiLabel,
   getFieldWorkflowStatus,
@@ -16,11 +17,14 @@ import {
   type EngineerTaskScope,
 } from '../../services/engineerReportService';
 import { engineerColors, engineerRadius, engineerSpacing } from '../../styles/engineerTheme';
+import TaskCard from './components/TaskCard';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<EngineerBottomTabParamList, 'Tasks'>,
   NativeStackScreenProps<EngineerRootStackParamList>
 >;
+
+const PAGE_SIZE = 10;
 
 const TABS: Array<{ scope: EngineerTaskScope; label: string; icon: string }> = [
   { scope: 'available', label: 'Chờ tiếp nhận', icon: 'scan-outline' },
@@ -30,11 +34,16 @@ const TABS: Array<{ scope: EngineerTaskScope; label: string; icon: string }> = [
 ];
 
 export default function EngineerTasksScreen({ route, navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const initialScope = (route?.params as { scope?: EngineerTaskScope } | undefined)?.scope;
   const [activeScope, setActiveScope] = useState<EngineerTaskScope>(initialScope || 'available');
   const [tasks, setTasks] = useState<EngineerTask[]>([]);
+  const [selectedWard, setSelectedWard] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const scopeCacheRef = useRef<Partial<Record<EngineerTaskScope, EngineerTask[]>>>({});
 
   const paramScope = (route?.params as { scope?: EngineerTaskScope } | undefined)?.scope;
   useEffect(() => {
@@ -43,26 +52,95 @@ export default function EngineerTasksScreen({ route, navigation }: Props) {
     }
   }, [paramScope]);
 
-  const loadTasks = useCallback(async (scope: EngineerTaskScope) => {
-    setIsLoading(true);
+  // Reset ward filter & visible pagination count when switching work scope
+  useEffect(() => {
+    setSelectedWard(null);
+    setVisibleCount(PAGE_SIZE);
+  }, [activeScope]);
+
+  const handleSelectWard = useCallback((ward: string | null) => {
+    setSelectedWard(ward);
+    setVisibleCount(PAGE_SIZE);
+  }, []);
+
+  const loadTasks = useCallback(async (scope: EngineerTaskScope, isRefresh = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+      delete scopeCacheRef.current[scope];
+    } else {
+      const cached = scopeCacheRef.current[scope];
+      if (cached !== undefined) {
+        setTasks(cached);
+        setIsLoading(false);
+      } else {
+        setIsLoading(true);
+      }
+    }
     setError('');
 
     try {
       const result = await fetchEngineerTasksByScope(scope);
+      scopeCacheRef.current[scope] = result.items;
       setTasks(result.items);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('taskListLoadError'));
-      setTasks([]);
+      if (!isRefresh && scopeCacheRef.current[scope] === undefined) {
+        setTasks([]);
+      }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    setVisibleCount(PAGE_SIZE);
+    void loadTasks(activeScope, true);
+  }, [activeScope, loadTasks]);
 
   useFocusEffect(
     useCallback(() => {
       void loadTasks(activeScope);
     }, [activeScope, loadTasks]),
   );
+
+  // Extract distinct administrative wards for quick filtering
+  const wardList = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of tasks) {
+      const w = t.ward?.trim();
+      if (w) {
+        const normalized = /^phường\s*/i.test(w) ? w : `Phường ${w}`;
+        counts[normalized] = (counts[normalized] || 0) + 1;
+      }
+    }
+    return Object.entries(counts)
+      .map(([wardName, count]) => ({ wardName, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [tasks]);
+
+  // Filter tasks based on selected ward
+  const displayedTasks = useMemo(() => {
+    if (!selectedWard) {
+      return tasks;
+    }
+    return tasks.filter((t) => {
+      const w = t.ward?.trim();
+      if (!w) return false;
+      const normalized = /^phường\s*/i.test(w) ? w : `Phường ${w}`;
+      return normalized.toLowerCase() === selectedWard.toLowerCase();
+    });
+  }, [tasks, selectedWard]);
+
+  const pagedTasks = useMemo(() => {
+    return displayedTasks.slice(0, visibleCount);
+  }, [displayedTasks, visibleCount]);
+
+  const handleEndReached = useCallback(() => {
+    if (visibleCount < displayedTasks.length) {
+      setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, displayedTasks.length));
+    }
+  }, [displayedTasks.length, visibleCount]);
 
   const emptyDescription = useMemo(() => {
     switch (activeScope) {
@@ -80,14 +158,14 @@ export default function EngineerTasksScreen({ route, navigation }: Props) {
   return (
     <View style={styles.container}>
       {/* Tactical Top Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, engineerSpacing.md) }]}>
         <View style={styles.headerTitleRow}>
           <View>
             <Text style={styles.headerTitle}>DANH MỤC PHIẾU TÁC NGHIỆP</Text>
             <Text style={styles.headerSubtitle}>Quản lý & Tiếp nhận hồ sơ hư hỏng thực địa</Text>
           </View>
           <View style={styles.headerCountBadge}>
-            <Text style={styles.headerCountText}>{tasks.length} PHIẾU</Text>
+            <Text style={styles.headerCountText}>{displayedTasks.length} PHIẾU</Text>
           </View>
         </View>
 
@@ -108,7 +186,7 @@ export default function EngineerTasksScreen({ route, navigation }: Props) {
                 <AppIcon
                   name={tab.icon as any}
                   size={14}
-                  color={active ? '#0B132B' : '#94A3B8'}
+                  color={active ? '#FFFFFF' : '#64748B'}
                   containerSize={16}
                 />
                 <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
@@ -116,6 +194,49 @@ export default function EngineerTasksScreen({ route, navigation }: Props) {
             );
           })}
         </ScrollView>
+
+        {/* Quick Administrative Ward Filter Bar */}
+        {wardList.length > 0 ? (
+          <View style={styles.wardFilterWrap}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.wardChipsContainer}
+            >
+              <Pressable
+                onPress={() => handleSelectWard(null)}
+                style={({ pressed }) => [
+                  styles.wardChip,
+                  selectedWard === null && styles.wardChipActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.wardChipText, selectedWard === null && styles.wardChipTextActive]}>
+                  Tất cả ({tasks.length})
+                </Text>
+              </Pressable>
+
+              {wardList.map((item) => {
+                const isSelected = selectedWard === item.wardName;
+                return (
+                  <Pressable
+                    key={item.wardName}
+                    onPress={() => handleSelectWard(isSelected ? null : item.wardName)}
+                    style={({ pressed }) => [
+                      styles.wardChip,
+                      isSelected && styles.wardChipActive,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={[styles.wardChipText, isSelected && styles.wardChipTextActive]}>
+                      {item.wardName} ({item.count})
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
 
       {/* Main Content Area */}
@@ -137,77 +258,85 @@ export default function EngineerTasksScreen({ route, navigation }: Props) {
       ) : null}
 
       {!isLoading && !error && tasks.length === 0 ? (
-        <View style={styles.stateWrap}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.stateScrollWrap,
+            { paddingBottom: Math.max(130, insets.bottom + 104) },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[engineerColors.brandAccent]}
+              tintColor={engineerColors.brandAccent}
+            />
+          }
+        >
           <EmptyState title="DANH SÁCH TRỐNG" description={emptyDescription} />
-        </View>
+        </ScrollView>
       ) : null}
 
-      {!isLoading && !error && tasks.length > 0 ? (
-        <ScrollView contentContainerStyle={styles.listContainer}>
-          {tasks.map((task) => {
-            const workflow = getFieldWorkflowStatus(task.fieldStatus);
-            const semantic = getEngineerTaskSemanticMeta(task, activeScope);
-            const isClaimable = task.canClaim;
-
-            return (
-              <Pressable
-                key={task.id}
-                onPress={() => navigation.navigate('EngineerTaskDetail', { reportId: task.id })}
-                style={({ pressed }) => [
-                  styles.ticketCard,
-                  { borderLeftColor: workflow?.color || engineerColors.brandPrimary },
-                  pressed && styles.cardPressed,
-                ]}
-              >
-                {/* Ticket Top Meta */}
-                <View style={styles.ticketTopRow}>
-                  <View style={styles.ticketIdBadge}>
-                    <Text style={styles.ticketIdText}>#RDG-{task.id.slice(0, 6).toUpperCase()}</Text>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.statusPill,
-                      {
-                        backgroundColor: workflow?.backgroundColor || '#EEF5FF',
-                        borderColor: workflow?.borderColor || '#B8D5FF',
-                      },
-                    ]}
-                  >
-                    <View style={[styles.statusDot, { backgroundColor: workflow?.color || engineerColors.brandPrimary }]} />
-                    <Text style={[styles.statusPillText, { color: workflow?.color || engineerColors.brandPrimary }]}>
-                      {workflow?.shortLabel || task.fieldStatusLabel}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Ticket Title & Address */}
-                <Text style={styles.ticketTitle} numberOfLines={2}>{task.title}</Text>
-                <Text style={styles.ticketAddress} numberOfLines={1}>📍 {task.address || 'Khu vực khảo sát thực địa'}</Text>
-
-                {/* Ticket Technical Footer */}
-                <View style={styles.ticketFooter}>
-                  <View style={styles.techTag}>
-                    <Text style={styles.techTagText}>
-                      {task.type ? `MÃ: ${task.type}` : 'CHƯA PHÂN LOẠI'}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.timestampText}>
-                    ⏱ {semantic.timestampLabel}: {semantic.timestampValue}
-                  </Text>
-                </View>
-
-                {isClaimable ? (
-                  <View style={styles.claimPromptBar}>
-                    <Text style={styles.claimPromptText}>⚡ Đang khả dụng để tiếp nhận kiểm tra ngay</Text>
-                    <AppIcon name="chevron-forward" size={14} color={engineerColors.safetyOrange} containerSize={16} />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
+      {!isLoading && !error && tasks.length > 0 && displayedTasks.length === 0 ? (
+        <ScrollView
+          contentContainerStyle={[
+            styles.stateScrollWrap,
+            { paddingBottom: Math.max(130, insets.bottom + 104) },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[engineerColors.brandAccent]}
+              tintColor={engineerColors.brandAccent}
+            />
+          }
+        >
+          <EmptyState
+            title="KHÔNG TÌM THẤY PHIẾU"
+            description={`Không có điểm hư hỏng nào trong ca trực thuộc ${selectedWard}.`}
+            action={<AppButton label="Xem tất cả phường" onPress={() => handleSelectWard(null)} />}
+          />
         </ScrollView>
+      ) : null}
+
+      {!isLoading && !error && displayedTasks.length > 0 ? (
+        <FlatList
+          data={pagedTasks}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <TaskCard
+              task={item}
+              scope={activeScope}
+              onPress={(t) => navigation.navigate('EngineerTaskDetail', { reportId: t.id })}
+            />
+          )}
+          contentContainerStyle={[
+            styles.listContainer,
+            { paddingBottom: Math.max(130, insets.bottom + 104) },
+          ]}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[engineerColors.brandAccent]}
+              tintColor={engineerColors.brandAccent}
+            />
+          }
+          ListFooterComponent={
+            visibleCount < displayedTasks.length ? (
+              <View style={styles.listFooter}>
+                <ActivityIndicator size="small" color={engineerColors.brandAccent} />
+                <Text style={styles.listFooterText}>Đang nạp thêm phiếu tác nghiệp...</Text>
+              </View>
+            ) : displayedTasks.length > PAGE_SIZE ? (
+              <View style={styles.listFooter}>
+                <Text style={styles.listFooterEndText}>Đã hiển thị toàn bộ {displayedTasks.length} phiếu</Text>
+              </View>
+            ) : null
+          }
+        />
       ) : null}
     </View>
   );
@@ -219,11 +348,15 @@ const styles = StyleSheet.create({
     backgroundColor: engineerColors.background,
   },
   header: {
-    backgroundColor: engineerColors.headerBg,
-    paddingTop: engineerSpacing.md,
+    backgroundColor: '#FFFFFF',
     paddingBottom: engineerSpacing.sm,
-    borderBottomWidth: 2,
-    borderBottomColor: engineerColors.headerBorder,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -233,26 +366,26 @@ const styles = StyleSheet.create({
     marginBottom: engineerSpacing.sm,
   },
   headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
+    color: '#0B132B',
+    fontSize: 18,
     fontWeight: '900',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   headerSubtitle: {
-    color: engineerColors.textOnDarkMuted,
-    fontSize: 11,
+    color: '#64748B',
+    fontSize: 12,
     marginTop: 2,
   },
   headerCountBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
+    backgroundColor: '#EEF5FF',
     borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
+    borderColor: '#DBEAFE',
   },
   headerCountText: {
-    color: engineerColors.brandAccent,
+    color: '#0F52BA',
     fontSize: 11,
     fontWeight: '900',
     fontFamily: 'monospace',
@@ -269,25 +402,57 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
+    borderColor: '#E2E8F0',
   },
   tabButtonActive: {
-    backgroundColor: engineerColors.brandAccent,
-    borderColor: engineerColors.brandAccent,
+    backgroundColor: '#0F52BA',
+    borderColor: '#0F52BA',
   },
   tabLabel: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 12,
     fontWeight: '800',
   },
   tabLabelActive: {
-    color: '#0B132B',
+    color: '#FFFFFF',
     fontWeight: '900',
   },
   pressed: {
     opacity: 0.85,
+  },
+  wardFilterWrap: {
+    paddingTop: engineerSpacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 4,
+  },
+  wardChipsContainer: {
+    paddingHorizontal: engineerSpacing.lg,
+    gap: 6,
+    paddingVertical: 4,
+  },
+  wardChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: engineerRadius.full,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  wardChipActive: {
+    backgroundColor: '#0F52BA',
+    borderColor: '#0F52BA',
+  },
+  wardChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  wardChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   loadingWrap: {
     flex: 1,
@@ -306,10 +471,31 @@ const styles = StyleSheet.create({
     padding: engineerSpacing.lg,
     justifyContent: 'center',
   },
+  stateScrollWrap: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   listContainer: {
     padding: engineerSpacing.lg,
     gap: 12,
-    paddingBottom: 40,
+    paddingBottom: 110,
+  },
+  listFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: engineerSpacing.md,
+    gap: 6,
+  },
+  listFooterText: {
+    color: engineerColors.brandAccent,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  listFooterEndText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   ticketCard: {
     backgroundColor: '#FFFFFF',

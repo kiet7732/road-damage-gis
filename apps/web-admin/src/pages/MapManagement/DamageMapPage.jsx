@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiFilter, FiRefreshCw, FiMaximize2, FiList, FiMapPin, FiX } from 'react-icons/fi';
 import MapFilterPanel from '../../components/MapFilterPanel';
 import WebGisMap from '../../components/WebGisMap';
 import useAsyncData from '../../hooks/useAsyncData';
 import { UI_COLORS } from '../../constants/statusColors';
-import { getEffectiveDamageTypeLabel } from '../../utils/reportDamage';
 import {
   isRealtimeReportEventRelevant,
   normalizeRealtimeReportEvent,
@@ -14,93 +12,36 @@ import {
 import {
   DEFAULT_GIS_CENTER,
   fetchAdminReportsGis,
+  fetchReportClustersGis,
   getMapErrorMessage,
 } from '../../services/mapAdminService';
-
-const DEFAULT_FILTERS = {
-  status: '',
-  damageType: '',
-  periodDays: '',
-};
-const SELECTED_REPORT_FOCUS_ZOOM = 16;
-const MAP_REALTIME_REFRESH_DEBOUNCE_MS = 900;
-
-const zoomToBounds = (center, zoom) => {
-  const step = zoom <= 10 ? 0.08 : zoom <= 12 ? 0.04 : zoom <= 14 ? 0.018 : 0.009;
-
-  return {
-    southWest: {
-      lat: center.latitude - step,
-      lng: center.longitude - step,
-    },
-    northEast: {
-      lat: center.latitude + step,
-      lng: center.longitude + step,
-    },
-  };
-};
-
-const normalizeBounds = (bbox) => {
-  if (!Array.isArray(bbox) || bbox.length < 4) {
-    return null;
-  }
-
-  const [minLongitude, minLatitude, maxLongitude, maxLatitude] = bbox.map(Number);
-
-  if (
-    ![minLongitude, minLatitude, maxLongitude, maxLatitude].every((value) => Number.isFinite(value)) ||
-    minLongitude > maxLongitude ||
-    minLatitude > maxLatitude
-  ) {
-    return null;
-  }
-
-  return {
-    southWest: {
-      lat: minLatitude,
-      lng: minLongitude,
-    },
-    northEast: {
-      lat: maxLatitude,
-      lng: maxLongitude,
-    },
-  };
-};
-
-const BOUNDS_EPSILON = 0.00005;
-
-const areBoundsEffectivelyEqual = (left, right) => {
-  if (!left || !right) {
-    return left === right;
-  }
-
-  const values = [
-    left?.southWest?.lat,
-    left?.southWest?.lng,
-    left?.northEast?.lat,
-    left?.northEast?.lng,
-    right?.southWest?.lat,
-    right?.southWest?.lng,
-    right?.northEast?.lat,
-    right?.northEast?.lng,
-  ];
-
-  if (!values.every((value) => Number.isFinite(value))) {
-    return false;
-  }
-
-  return (
-    Math.abs(left.southWest.lat - right.southWest.lat) < BOUNDS_EPSILON &&
-    Math.abs(left.southWest.lng - right.southWest.lng) < BOUNDS_EPSILON &&
-    Math.abs(left.northEast.lat - right.northEast.lat) < BOUNDS_EPSILON &&
-    Math.abs(left.northEast.lng - right.northEast.lng) < BOUNDS_EPSILON
-  );
-};
+import AdministrativeFilterBar from '../../components/gis/AdministrativeFilterBar';
+import ReportDetailDrawer from '../../components/gis/ReportDetailDrawer';
+import MapReportListOverlay from '../../components/gis/MapReportListOverlay';
+import MapToolbar from '../../components/gis/MapToolbar';
+import { useAuth } from '../../hooks/useAuth';
+import {
+  DISTRICT_CENTERS,
+  DEFAULT_FILTERS,
+  SELECTED_REPORT_FOCUS_ZOOM,
+  MAP_REALTIME_REFRESH_DEBOUNCE_MS,
+  zoomToBounds,
+  normalizeBounds,
+  areBoundsEffectivelyEqual,
+} from '../../constants/mapConstants';
 
 export default function DamageMapPage() {
   const navigate = useNavigate();
+  const { managedDistrict } = useAuth();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [adminFilters, setAdminFilters] = useState(() => ({
+    province: '',
+    district: managedDistrict || '',
+    ward: '',
+    roadName: '',
+  }));
   const [selectedReport, setSelectedReport] = useState(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [focusNonce, setFocusNonce] = useState(0);
   const [fitResultsNonce, setFitResultsNonce] = useState(1);
   const [fitBoundsRequest, setFitBoundsRequest] = useState(null);
@@ -121,6 +62,7 @@ export default function DamageMapPage() {
     return 'desktop';
   });
   const [isMapPanelOpen, setIsMapPanelOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const refreshTimerRef = useRef(null);
   const lastHandledRealtimeEventIdRef = useRef('');
   const isSoftRefreshingRef = useRef(false);
@@ -134,15 +76,58 @@ export default function DamageMapPage() {
     ),
   );
 
+  const handleDistrictSelect = useCallback((districtName) => {
+    if (!districtName) {
+      return;
+    }
+
+    const center = DISTRICT_CENTERS[districtName];
+    if (center) {
+      const step = 0.025;
+      setFitBoundsRequest({
+        bounds: {
+          southWest: {
+            lat: center.latitude - step,
+            lng: center.longitude - step,
+          },
+          northEast: {
+            lat: center.latitude + step,
+            lng: center.longitude + step,
+          },
+        },
+        nonce: Date.now(),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (managedDistrict && adminFilters.district !== managedDistrict) {
+      setAdminFilters((current) => ({
+        ...current,
+        district: managedDistrict,
+      }));
+    }
+  }, [managedDistrict, adminFilters.district]);
+
+  useEffect(() => {
+    if (managedDistrict && DISTRICT_CENTERS[managedDistrict]) {
+      handleDistrictSelect(managedDistrict);
+    }
+  }, [managedDistrict, handleDistrictSelect]);
+
   const queryState = useMemo(
     () => ({
       status: filters.status,
       damageType: filters.damageType,
       periodDays: filters.periodDays,
+      province: adminFilters.province,
+      district: adminFilters.district,
+      ward: adminFilters.ward,
+      roadName: adminFilters.roadName,
       bounds: queryBounds,
       limit: 1000,
     }),
-    [filters, queryBounds],
+    [filters, adminFilters, queryBounds],
   );
 
   const { data, isLoading, isRefreshing, error, isError, reload } = useAsyncData(async () => {
@@ -151,9 +136,52 @@ export default function DamageMapPage() {
     } catch (requestError) {
       throw new Error(getMapErrorMessage(requestError));
     }
-  }, [queryState.status, queryState.damageType, queryState.periodDays, queryState.bounds]);
+  }, [
+    queryState.status,
+    queryState.damageType,
+    queryState.periodDays,
+    queryState.province,
+    queryState.district,
+    queryState.ward,
+    queryState.roadName,
+    queryState.bounds,
+  ]);
 
   const mapItems = Array.isArray(data?.items) ? data.items : [];
+  const [useServerDBSCAN, setUseServerDBSCAN] = useState(false);
+  const [serverClusters, setServerClusters] = useState(null);
+
+  useEffect(() => {
+    if (!useServerDBSCAN) {
+      setServerClusters(null);
+      return;
+    }
+
+    let isCancelled = false;
+    async function loadClusters() {
+      try {
+        const clusters = await fetchReportClustersGis({
+          eps: 0.003,
+          minPoints: 2,
+          status: filters.status,
+          district: adminFilters.district,
+          ward: adminFilters.ward,
+        });
+        if (!isCancelled) {
+          setServerClusters(clusters);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setServerClusters(null);
+        }
+      }
+    }
+
+    loadClusters();
+    return () => {
+      isCancelled = true;
+    };
+  }, [useServerDBSCAN, filters.status, adminFilters.district, adminFilters.ward]);
 
   const selectedReportDetail = useMemo(() => {
     if (!selectedReport?.id) {
@@ -175,13 +203,87 @@ export default function DamageMapPage() {
   }, [data]);
   const resultBounds = useMemo(() => normalizeBounds(data?.bbox), [data?.bbox]);
   const canFitResults = Boolean(resultBounds && viewportSummary.total > 0);
-  const isCompactMapLayout = layoutMode === 'mobile';
+  const isCompactMapLayout = layoutMode === 'mobile' || layoutMode === 'tablet';
 
   useEffect(() => {
     if (selectedReport && !selectedReportDetail) {
       setSelectedReport(null);
     }
   }, [selectedReport, selectedReportDetail]);
+
+  // Tự động zoom và định vị bao quát kết quả khi người dùng lọc địa giới hoặc tìm tên đường
+  const lastAutoFitSignatureRef = useRef('');
+  useEffect(() => {
+    const hasAdminFilter = Boolean(
+      adminFilters.province ||
+      adminFilters.district ||
+      adminFilters.ward ||
+      adminFilters.roadName
+    );
+
+    if (!hasAdminFilter) {
+      return;
+    }
+
+    const filterKey = `${adminFilters.province || ''}:${adminFilters.district || ''}:${adminFilters.ward || ''}:${adminFilters.roadName || ''}`;
+
+    if (data?.items && data.items.length > 0 && resultBounds) {
+      const signature = `${filterKey}:${data.items.length}:${data.bbox?.join(',')}`;
+      if (lastAutoFitSignatureRef.current !== signature) {
+        lastAutoFitSignatureRef.current = signature;
+        if (data.items.length === 1) {
+          const single = data.items[0];
+          setSelectedReport(single);
+          setFitBoundsRequest({
+            bounds: {
+              southWest: { lat: single.latitude - 0.003, lng: single.longitude - 0.003 },
+              northEast: { lat: single.latitude + 0.003, lng: single.longitude + 0.003 },
+            },
+            nonce: Date.now(),
+          });
+        } else {
+          setFitBoundsRequest({
+            bounds: resultBounds,
+            nonce: Date.now(),
+          });
+        }
+      }
+    } else if (data?.items && data.items.length === 0 && adminFilters.district) {
+      const center = DISTRICT_CENTERS[adminFilters.district];
+      if (center) {
+        const step = 0.025;
+        const districtSig = `empty-district:${adminFilters.district}`;
+        if (lastAutoFitSignatureRef.current !== districtSig) {
+          lastAutoFitSignatureRef.current = districtSig;
+          setFitBoundsRequest({
+            bounds: {
+              southWest: { lat: center.latitude - step, lng: center.longitude - step },
+              northEast: { lat: center.latitude + step, lng: center.longitude + step },
+            },
+            nonce: Date.now(),
+          });
+        }
+      }
+    }
+  }, [adminFilters, data, resultBounds]);
+
+  const handleResetAdminFilters = useCallback(() => {
+    setAdminFilters({
+      province: '',
+      district: managedDistrict || '',
+      ward: '',
+      roadName: '',
+    });
+    setSelectedReport(null);
+    setIsDrawerOpen(false);
+    setFitBoundsRequest({
+      bounds: zoomToBounds(
+        { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
+        DEFAULT_GIS_CENTER.zoom,
+      ),
+      nonce: Date.now(),
+    });
+  }, [managedDistrict]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -244,6 +346,7 @@ export default function DamageMapPage() {
 
     setSelectedReport(report);
     setFocusNonce((value) => value + 1);
+    setIsDrawerOpen(true);
   }, []);
 
   const handleViewportChange = useCallback(
@@ -259,6 +362,7 @@ export default function DamageMapPage() {
 
   const handleSelectPoint = useCallback((point) => {
     setSelectedReport(point);
+    setIsDrawerOpen(true);
   }, []);
 
   const handleOpenDetail = useCallback(
@@ -346,58 +450,75 @@ export default function DamageMapPage() {
     };
   }, [activeSelectedReport?.id, scheduleSoftRefresh]);
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        if (isDrawerOpen) {
+          setIsDrawerOpen(false);
+        } else if (selectedReport) {
+          setSelectedReport(null);
+        } else if (isReportListOpen) {
+          setIsReportListOpen(false);
+        } else if (isMapPanelOpen) {
+          setIsMapPanelOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDrawerOpen, isMapPanelOpen, isReportListOpen, selectedReport]);
+
   return (
     <section style={styles.page}>
       <div style={styles.mapStage}>
         <div style={styles.mapViewportWrap}>
-          <div style={styles.mapToolbar}>
-            <div style={styles.mapToolbarActions}>
-              <button
-                type="button"
-                onClick={() => setIsReportListOpen((value) => !value)}
-                style={styles.secondaryMapButton}
-                title="Mở danh sách phản ánh trên bản đồ"
-              >
-                <FiList size={16} />
-                <span>Phản ánh</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
+          <div style={styles.mapTopControls}>
+            <div style={styles.adminFilterSlot}>
+              <AdministrativeFilterBar
+                filters={adminFilters}
+                values={adminFilters}
+                onChange={setAdminFilters}
+                onDistrictSelect={handleDistrictSelect}
+                fixedDistrict={managedDistrict}
+                totalResults={mapItems.length}
+                isLoadingResults={isLoading || isRefreshing}
+                onReset={handleResetAdminFilters}
+                isCompact={isCompactMapLayout}
+              />
+            </div>
+            <div style={styles.toolbarSlot}>
+              <MapToolbar
+                onToggleReportList={() => {
+                  setIsReportListOpen((value) => !value);
+                  setIsMapPanelOpen(false);
+                }}
+                onFitAll={() => {
                   if (canFitResults) {
                     setFitBoundsRequest({ bounds: resultBounds, nonce: Date.now() });
                   }
                 }}
-                style={styles.secondaryMapButton}
-                title="Hiển thị toàn bộ kết quả"
-                disabled={!canFitResults}
-              >
-                <FiMaximize2 size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  scheduleSoftRefresh();
+                canFitResults={canFitResults}
+                useServerDBSCAN={useServerDBSCAN}
+                onToggleDBSCAN={() => setUseServerDBSCAN((v) => !v)}
+                onRefresh={scheduleSoftRefresh}
+                onToggleMapPanel={() => {
+                  if (isCompactMapLayout) {
+                    setIsMapPanelOpen((value) => !value);
+                    setIsReportListOpen(false);
+                  } else {
+                    setIsSidebarOpen((value) => !value);
+                  }
                 }}
-                style={styles.secondaryMapButton}
-                title="Cập nhật dữ liệu bản đồ"
-              >
-                <FiRefreshCw size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsMapPanelOpen((value) => !value)}
-                style={styles.primaryMapButton}
-                title="Mở bộ lọc bản đồ"
-              >
-                <FiFilter size={17} />
-                <span>Bộ lọc</span>
-              </button>
+                isPanelActive={isCompactMapLayout ? isMapPanelOpen : isSidebarOpen}
+                isCompact={isCompactMapLayout}
+              />
             </div>
           </div>
 
           <WebGisMap
             items={mapItems}
+            serverClusters={useServerDBSCAN ? serverClusters : null}
             initialLoading={isLoading}
             refreshing={isRefreshing}
             error={isError ? error : ''}
@@ -410,299 +531,172 @@ export default function DamageMapPage() {
                 ? { ...activeSelectedReport, zoom: SELECTED_REPORT_FOCUS_ZOOM, nonce: focusNonce }
                 : null
             }
-            selectedReport={activeSelectedReport}
+            selectedReport={isDrawerOpen ? null : activeSelectedReport}
             onViewportChange={handleViewportChange}
             onSelectPoint={handleSelectPoint}
             onOpenDetail={handleOpenDetail}
+            onCloseDetail={() => {
+              setSelectedReport(null);
+              setIsDrawerOpen(false);
+            }}
           />
 
-          {isReportListOpen ? (
-            <div style={styles.reportListOverlay}>
-              <div style={styles.reportListHeader}>
-                <div>
-                  <strong style={styles.reportListTitle}>Danh sách phản ánh</strong>
-                  <div style={styles.reportListSubtitle}>
-                    {viewportSummary.total} phản ánh trong vùng đang xem
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsReportListOpen(false)}
-                  style={styles.reportListCloseButton}
-                  aria-label="Đóng danh sách phản ánh"
-                >
-                  <FiX size={16} />
-                </button>
-              </div>
-
-              <div style={styles.reportListBody}>
-                {mapItems.length === 0 ? (
-                  <div style={styles.reportListEmpty}>Chưa có phản ánh nào trong vùng đang xem.</div>
-                ) : (
-                  mapItems.slice(0, 24).map((report) => (
-                    <button
-                      key={report.id}
-                      type="button"
-                      onClick={() => {
-                        focusReportOnMap(report);
-                        setIsReportListOpen(false);
-                      }}
-                      style={{
-                        ...styles.reportListItem,
-                        ...(activeSelectedReport?.id === report.id ? styles.reportListItemActive : null),
-                      }}
-                    >
-                      <div style={styles.reportListItemTop}>
-                        <span style={styles.reportListItemTitle}>
-                          {report.damage_label || getEffectiveDamageTypeLabel(report)}
-                        </span>
-                      </div>
-                      <div style={styles.reportListItemMeta}>
-                        <FiMapPin size={13} />
-                        <span>
-                          {report.latitude?.toFixed?.(5)}, {report.longitude?.toFixed?.(5)}
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : null}
+          <MapReportListOverlay
+            isOpen={isReportListOpen}
+            onClose={() => setIsReportListOpen(false)}
+            totalCount={viewportSummary.total}
+            mapItems={mapItems}
+            activeSelectedReport={activeSelectedReport}
+            onFocusReport={focusReportOnMap}
+          />
         </div>
 
-        {isMapPanelOpen ? (
-          <>
+        {/* Mobile / Tablet Slide-in Modal Drawer */}
+        {isCompactMapLayout && isMapPanelOpen ? (
+          <div style={styles.modalOverlay} role="presentation">
             <button
               type="button"
-              aria-label="Đóng bảng bộ lọc bản đồ"
-              style={styles.panelBackdrop}
+              style={styles.modalBackdrop}
               onClick={() => setIsMapPanelOpen(false)}
+              aria-label="Đóng bảng lọc bản đồ"
             />
-            <div style={styles.panelOverlay}>
+            <div style={styles.modalDrawer}>
               <MapFilterPanel
                 filters={filters}
                 summary={viewportSummary}
-                loading={isLoading || isRefreshing}
-                error={isError ? error : ''}
-                isCompact={isCompactMapLayout}
+                totalResults={mapItems.length}
+                canFitResults={canFitResults}
+                isCompact
                 layoutMode={layoutMode}
-                onStatusChange={(value) => setFilters((current) => ({ ...current, status: value }))}
-                onDamageTypeChange={(value) => setFilters((current) => ({ ...current, damageType: value }))}
-                onPeriodChange={(value) => setFilters((current) => ({ ...current, periodDays: value }))}
+                onChange={setFilters}
+                onStatusChange={(status) => setFilters((f) => ({ ...f, status }))}
+                onDamageTypeChange={(damageType) => setFilters((f) => ({ ...f, damageType }))}
+                onPeriodChange={(periodDays) => setFilters((f) => ({ ...f, periodDays }))}
                 onReset={() => {
                   setFilters(DEFAULT_FILTERS);
-                  setSelectedReport(null);
                   setFitResultsNonce((value) => value + 1);
-                  scheduleSoftRefresh();
                 }}
-                onReload={() => {
-                  scheduleSoftRefresh();
-                }}
-                onFitResults={() => {
-                  if (!resultBounds) {
-                    return;
-                  }
-
-                  setFitBoundsRequest({ bounds: resultBounds, nonce: Date.now() });
-                  setIsMapPanelOpen(false);
-                }}
-                canFitResults={canFitResults}
-                onClosePanel={() => setIsMapPanelOpen(false)}
+                onFitResults={() => setFitResultsNonce((value) => value + 1)}
+                onReload={scheduleSoftRefresh}
+                onClose={() => setIsMapPanelOpen(false)}
               />
             </div>
-          </>
+          </div>
+        ) : null}
+
+        {/* Desktop Collapsible Sidebar */}
+        {!isCompactMapLayout && isSidebarOpen ? (
+          <aside className="road-admin-map-sidebar" style={styles.mapSidebar}>
+            <MapFilterPanel
+              filters={filters}
+              summary={viewportSummary}
+              totalResults={mapItems.length}
+              canFitResults={canFitResults}
+              onChange={setFilters}
+              onStatusChange={(status) => setFilters((f) => ({ ...f, status }))}
+              onDamageTypeChange={(damageType) => setFilters((f) => ({ ...f, damageType }))}
+              onPeriodChange={(periodDays) => setFilters((f) => ({ ...f, periodDays }))}
+              onReset={() => {
+                setFilters(DEFAULT_FILTERS);
+                setFitResultsNonce((value) => value + 1);
+              }}
+              onFitResults={() => setFitResultsNonce((value) => value + 1)}
+              onReload={scheduleSoftRefresh}
+              onClose={() => setIsSidebarOpen(false)}
+            />
+          </aside>
         ) : null}
       </div>
+
+      <ReportDetailDrawer
+        report={activeSelectedReport}
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        onOpenFullDetail={handleOpenDetail}
+      />
     </section>
   );
 }
 
 const styles = {
   page: {
+    height: '100%',
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
-    flex: 1,
-    gap: 0,
-    height: '100%',
-    minHeight: 0,
+    gap: 16,
   },
   mapStage: {
-    position: 'relative',
     display: 'flex',
     flex: 1,
-    height: '100%',
+    gap: 16,
     minHeight: 0,
-  },
-  secondaryMapButton: {
-    minHeight: 40,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    padding: '0 12px',
-    borderRadius: 12,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    fontSize: 12,
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  primaryMapButton: {
-    minHeight: 40,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    padding: '0 14px',
-    borderRadius: 12,
-    border: 'none',
-    background: UI_COLORS.primary,
-    color: UI_COLORS.surface,
-    fontSize: 12,
-    fontWeight: 800,
-    cursor: 'pointer',
+    height: '100%',
+    position: 'relative',
   },
   mapViewportWrap: {
     position: 'relative',
     display: 'flex',
     flex: 1,
-    height: '100%',
+    minWidth: 0,
     minHeight: 0,
+    height: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
   },
-  mapToolbar: {
+  mapTopControls: {
     position: 'absolute',
     top: 14,
+    left: 14,
     right: 14,
     zIndex: 650,
     display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: 0,
-    borderRadius: 0,
-    background: 'transparent',
-    border: 'none',
-    boxShadow: 'none',
-    backdropFilter: 'none',
-    flexWrap: 'wrap',
-  },
-  mapToolbarActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  panelBackdrop: {
-    position: 'absolute',
-    inset: 0,
-    zIndex: 180,
-    border: 0,
-    background: 'rgba(15, 23, 42, 0.18)',
-    cursor: 'pointer',
-  },
-  panelOverlay: {
-    position: 'absolute',
-    top: 62,
-    right: 14,
-    width: 'min(320px, calc(100% - 28px))',
-    zIndex: 190,
-  },
-  reportListOverlay: {
-    position: 'absolute',
-    top: 62,
-    right: 14,
-    width: 'min(320px, calc(100% - 28px))',
-    maxHeight: 'min(64vh, 560px)',
-    zIndex: 645,
-    display: 'grid',
-    gap: 0,
-    borderRadius: 18,
-    overflow: 'hidden',
-    background: 'rgba(255,255,255,0.98)',
-    border: `1px solid ${UI_COLORS.border}`,
-    boxShadow: '0 18px 40px rgba(15, 23, 42, 0.16)',
-    backdropFilter: 'blur(10px)',
-  },
-  reportListHeader: {
-    display: 'flex',
-    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
-    padding: 14,
-    borderBottom: `1px solid ${UI_COLORS.border}`,
+    alignItems: 'flex-start',
+    gap: 10,
+    pointerEvents: 'none',
+    flexWrap: 'wrap',
   },
-  reportListTitle: {
-    color: UI_COLORS.text,
-    fontSize: 16,
-    fontWeight: 900,
+  adminFilterSlot: {
+    pointerEvents: 'auto',
+    flex: '1 1 auto',
+    maxWidth: '100%',
   },
-  reportListSubtitle: {
-    marginTop: 4,
-    color: UI_COLORS.textMuted,
-    fontSize: 12,
-    lineHeight: 1.4,
-  },
-  reportListCloseButton: {
-    width: 34,
-    height: 34,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    cursor: 'pointer',
+  toolbarSlot: {
+    pointerEvents: 'auto',
     flexShrink: 0,
   },
-  reportListBody: {
-    display: 'grid',
-    gap: 8,
-    padding: 12,
-    overflowY: 'auto',
-  },
-  reportListEmpty: {
-    padding: 16,
-    background: 'rgba(255,255,255,0.96)',
-    borderRadius: 12,
-    color: UI_COLORS.textMuted,
-    fontSize: 13,
-    lineHeight: 1.45,
-  },
-  reportListItem: {
-    display: 'grid',
-    gap: 8,
-    padding: 12,
-    borderRadius: 14,
-    border: `1px solid ${UI_COLORS.border}`,
-    background: UI_COLORS.surface,
-    color: UI_COLORS.text,
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  reportListItemActive: {
-    borderColor: '#B8D5FF',
-    background: '#EEF5FF',
-  },
-  reportListItemTop: {
+  mapSidebar: {
+    width: 320,
+    flexShrink: 0,
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    flexDirection: 'column',
+    minHeight: 0,
+    transition: 'all 0.2s ease',
   },
-  reportListItemTitle: {
-    color: UI_COLORS.text,
-    fontSize: 14,
-    fontWeight: 800,
-    lineHeight: 1.35,
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1050,
+    display: 'flex',
+    justifyContent: 'flex-end',
   },
-  reportListItemMeta: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    color: UI_COLORS.textMuted,
-    fontSize: 12,
-    fontWeight: 700,
+  modalBackdrop: {
+    position: 'absolute',
+    inset: 0,
+    border: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backdropFilter: 'blur(3px)',
+    cursor: 'pointer',
+  },
+  modalDrawer: {
+    position: 'relative',
+    zIndex: 1,
+    width: 'min(90vw, 360px)',
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    boxShadow: '-8px 0 32px rgba(15, 23, 42, 0.25)',
+    display: 'flex',
+    flexDirection: 'column',
   },
 };

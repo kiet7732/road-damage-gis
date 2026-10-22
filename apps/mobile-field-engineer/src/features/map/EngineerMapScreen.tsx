@@ -2,13 +2,14 @@ import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/nat
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getFieldEngineerActionLabel, getFieldEngineerUiLabel, getFieldWorkflowStatus } from '../../../../../packages/shared-constants/src/engineerLabels';
 import type { Report } from '../../../../../packages/mobile-shared/src/roadDamageTypes';
 import type { EngineerBottomTabParamList, EngineerRootStackParamList } from '../../types/navigation';
-import { AppButton, colors, radius, RoadDamageMapView, spacing, type MapRegion, type RoadDamageMapHandle, getOrLoadUserLocation, setCachedUserLocation } from '../../shared/mobileShared';
-import { MapEmptyOverlay, MapHeader, MapLegendCompact, MapSelectionCard } from './EngineerMapUi';
+import { AppButton, AppIcon, colors, radius, RoadDamageMapView, spacing, type MapRegion, type RoadDamageMapHandle, getCachedUserLocation, getOrLoadUserLocation, setCachedUserLocation } from '../../shared/mobileShared';
+import { MapEmptyOverlay, MapFloatingHeader, MapSelectionCard } from './EngineerMapUi';
+import { engineerColors, engineerSpacing } from '../../styles/engineerTheme';
 import {
   buildEngineerFocusRegion,
   claimEngineerTask,
@@ -41,13 +42,45 @@ const FIELD_STATE_ORDER = [
   'survey_completed',
 ] as const;
 
+function calculateTasksBounds(taskList: EngineerTask[]): MapRegion | null {
+  if (!taskList || taskList.length === 0) return null;
+  let minLat = taskList[0].gps.latitude;
+  let maxLat = taskList[0].gps.latitude;
+  let minLng = taskList[0].gps.longitude;
+  let maxLng = taskList[0].gps.longitude;
+  for (const t of taskList) {
+    if (t.gps.latitude < minLat) minLat = t.gps.latitude;
+    if (t.gps.latitude > maxLat) maxLat = t.gps.latitude;
+    if (t.gps.longitude < minLng) minLng = t.gps.longitude;
+    if (t.gps.longitude > maxLng) maxLng = t.gps.longitude;
+  }
+  const midLat = (minLat + maxLat) / 2;
+  const midLng = (minLng + maxLng) / 2;
+  const latDelta = Math.max((maxLat - minLat) * 1.35, 0.04);
+  const lngDelta = Math.max((maxLng - minLng) * 1.35, 0.04);
+  return {
+    latitude: midLat,
+    longitude: midLng,
+    latitudeDelta: Math.min(latDelta, 0.6),
+    longitudeDelta: Math.min(lngDelta, 0.6),
+  };
+}
+
 export default function EngineerMapScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const cachedLocation = getCachedUserLocation();
+  const initialRegion: MapRegion = cachedLocation
+    ? {
+        latitude: cachedLocation.latitude,
+        longitude: cachedLocation.longitude,
+        ...USER_REGION_DELTA,
+      }
+    : DEFAULT_REGION;
   const mapRef = useRef<RoadDamageMapHandle | null>(null);
-  const [region, setRegion] = useState<MapRegion>(DEFAULT_REGION);
+  const [region, setRegion] = useState<MapRegion>(initialRegion);
   const [tasks, setTasks] = useState<EngineerTask[]>([]);
   const [selectedTask, setSelectedTask] = useState<EngineerTask | null>(null);
-  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(cachedLocation);
   const [isLoading, setIsLoading] = useState(true);
   const [isClaiming, setIsClaiming] = useState(false);
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
@@ -55,24 +88,35 @@ export default function EngineerMapScreen({ navigation }: Props) {
 
   const reports = useMemo<Report[]>(() => tasks.map((task) => task), [tasks]);
 
+  const hasLoadedRef = useRef(false);
+
   const loadMapData = useCallback(async () => {
-    setIsLoading(true);
+    // SWR: Only show blocking loader on first cold start
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError('');
     try {
-      const [nextTasks, location] = await Promise.all([
-        fetchEngineerMapTasks(),
-        getOrLoadUserLocation(),
-      ]);
-
+      const nextTasks = await fetchEngineerMapTasks();
+      hasLoadedRef.current = true;
       setTasks(nextTasks);
-      if (location) {
-        setUserLocation(location);
-        setCachedUserLocation(location);
-        setRegion({
-          latitude: location.latitude,
-          longitude: location.longitude,
-          ...USER_REGION_DELTA,
-        });
+      setIsLoading(false);
+
+      // Refresh user location in background without blocking map display
+      void getOrLoadUserLocation().then((location) => {
+        if (location) {
+          setUserLocation(location);
+          setCachedUserLocation(location);
+        }
+      });
+
+      // Automatically focus on the cluster of tasks so all 53 tasks are visible
+      if (nextTasks.length > 0) {
+        const bounds = calculateTasksBounds(nextTasks);
+        if (bounds) {
+          setRegion(bounds);
+          mapRef.current?.animateToRegion(bounds, 650);
+        }
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : getFieldEngineerUiLabel('mapLoadError'));
@@ -80,6 +124,50 @@ export default function EngineerMapScreen({ navigation }: Props) {
       setIsLoading(false);
     }
   }, []);
+
+  const handleFocusCurrentLocation = useCallback(async () => {
+    let loc = userLocation;
+    if (!loc) {
+      loc = await getOrLoadUserLocation();
+      if (loc) {
+        setUserLocation(loc);
+        setCachedUserLocation(loc);
+      }
+    }
+
+    if (loc) {
+      const focusRegion: MapRegion = {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        ...USER_REGION_DELTA,
+      };
+      setRegion(focusRegion);
+      mapRef.current?.animateToRegion(focusRegion, 650);
+    }
+  }, [userLocation]);
+
+  const handleMapPanDrag = useCallback(() => {
+    if (isLegendExpanded) {
+      setIsLegendExpanded(false);
+    }
+  }, [isLegendExpanded]);
+
+  const handleSelectReport = useCallback((report: Report) => {
+    const nextTask = tasks.find((item) => item.id === report.id) || null;
+    setSelectedTask(nextTask);
+    if (isLegendExpanded) {
+      setIsLegendExpanded(false);
+    }
+    if (nextTask) {
+      const focusRegion: MapRegion = {
+        latitude: nextTask.gps.latitude - USER_REGION_DELTA.latitudeDelta * 0.20,
+        longitude: nextTask.gps.longitude,
+        ...USER_REGION_DELTA,
+      };
+      setRegion(focusRegion);
+      mapRef.current?.animateToRegion(focusRegion, 450);
+    }
+  }, [tasks, isLegendExpanded]);
 
   useFocusEffect(
     useCallback(() => {
@@ -207,113 +295,179 @@ export default function EngineerMapScreen({ navigation }: Props) {
     return Math.round(R * c);
   }, [selectedTask, userLocation]);
 
+  const selectionBottomOffset = Math.max(96, insets.bottom + 88);
+  const locateFabBottom = selectedTask
+    ? selectionBottomOffset + 246
+    : Math.max(104, insets.bottom + 94);
+  const fitAllFabBottom = selectedTask
+    ? selectionBottomOffset + 306
+    : Math.max(164, insets.bottom + 154);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={{ paddingTop: Math.max(insets.top, 0) }}>
-          <MapHeader
-            title="BẢN ĐỒ RADAR HIỆN TRƯỜNG"
-            subtitle="Định vị & Tiếp nhận điểm hư hỏng thực địa"
-            count={tasks.length}
-          />
-        </View>
+    <View style={styles.container}>
+      <RoadDamageMapView
+        ref={mapRef}
+        reports={reports}
+        region={region}
+        selectedReportId={selectedTask?.id ?? null}
+        showsUserLocation
+        userLocation={userLocation}
+        onRegionChangeComplete={setRegion}
+        onSelectReport={handleSelectReport}
+        onMapPanDrag={handleMapPanDrag}
+        getMarkerTone={(report) => getEngineerMarkerTone(report as EngineerTask)}
+        getPopupStatusLabel={(report) => getTaskStateLabel(report as EngineerTask)}
+        popupActionLabel={getFieldEngineerUiLabel('mapTaskOpen')}
+      />
 
-        <View style={styles.mapWrap}>
-          <RoadDamageMapView
-            ref={mapRef}
-            reports={reports}
-            region={region}
-            selectedReportId={selectedTask?.id ?? null}
-            showsUserLocation
-            userLocation={userLocation}
-            onRegionChangeComplete={setRegion}
-            onSelectReport={(report) => {
-              const nextTask = tasks.find((item) => item.id === report.id) || null;
-              setSelectedTask(nextTask);
-            }}
-            getMarkerTone={(report) => getEngineerMarkerTone(report as EngineerTask)}
-            getPopupStatusLabel={(report) => getTaskStateLabel(report as EngineerTask)}
-            popupActionLabel={getFieldEngineerUiLabel('mapTaskOpen')}
-          />
-
-          {!isLoading && !error && legendItems.length > 0 ? (
-            <MapLegendCompact
-              items={legendItems}
-              expanded={isLegendExpanded}
-              onToggle={() => setIsLegendExpanded((current) => !current)}
-            />
-          ) : null}
-
-          {isLoading ? (
-            <View style={styles.centerOverlay}>
-              <View style={styles.overlayCard}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={styles.overlayText}>Đang quét bản đồ tác chiến...</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {!isLoading && error ? (
-            <View style={styles.centerOverlay}>
-              <View style={styles.overlayCard}>
-                <Text style={styles.overlayError}>{error}</Text>
-                <AppButton label={getFieldEngineerUiLabel('commonRetry')} onPress={() => void loadMapData()} />
-              </View>
-            </View>
-          ) : null}
-
-          {!isLoading && !error && reports.length === 0 ? <MapEmptyOverlay /> : null}
-
-          {selectedTask && primaryAction ? (
-            <MapSelectionCard
-              title={selectedTask.title}
-              statusLabel={selectedMeta?.shortLabel || selectedTask.fieldStatusLabel}
-              statusColor={selectedMeta?.color || colors.primaryDark}
-              statusBackgroundColor={selectedMeta?.backgroundColor || '#EEF5FF'}
-              statusBorderColor={selectedMeta?.borderColor || '#B8D5FF'}
-              address={selectedTask.address || getFieldEngineerUiLabel('mapSelectionAddressFallback')}
-              hint={buildTaskAvailabilityHint(selectedTask)}
-              distanceMeters={selectedDistanceMeters}
-              primaryAction={primaryAction}
-              secondaryActions={[
-                {
-                  key: 'detail',
-                  label: 'Xem hồ sơ',
-                  onPress: () => navigation.navigate('EngineerTaskDetail', { reportId: selectedTask.id }),
-                },
-                {
-                  key: 'focus',
-                  label: 'Định vị',
-                  onPress: () => handleFocusTask(selectedTask),
-                },
-              ]}
-              footerMessage={selectionFooter}
-            />
-          ) : null}
-        </View>
+      {/* Floating Top Header */}
+      <View style={[styles.topPanelWrap, { top: Math.max(insets.top, 10) }]}>
+        <MapFloatingHeader
+          title="Bản đồ tác nghiệp"
+          subtitle={isLoading ? 'Đang tải dữ liệu hiện trường...' : `${tasks.length} điểm hư hỏng cần xử lý`}
+          count={tasks.length}
+          legendItems={legendItems}
+          isLegendExpanded={isLegendExpanded}
+          onToggleLegend={() => setIsLegendExpanded((prev) => !prev)}
+        />
       </View>
-    </SafeAreaView>
+
+      {/* Floating Fit All Tasks Button */}
+      {tasks.length > 0 && (
+        <Pressable
+          accessibilityLabel="Xem tất cả nhiệm vụ"
+          accessibilityRole="button"
+          onPress={() => {
+            const b = calculateTasksBounds(tasks);
+            if (b) {
+              setRegion(b);
+              mapRef.current?.animateToRegion(b, 650);
+            }
+          }}
+          style={({ pressed }) => [
+            styles.floatingLocateButton,
+            { bottom: fitAllFabBottom, backgroundColor: '#FFFFFF' },
+            pressed && styles.pressed,
+          ]}
+        >
+          <AppIcon
+            name="layers"
+            size={22}
+            color={engineerColors.brandPrimary}
+            containerSize={28}
+          />
+        </Pressable>
+      )}
+
+      {/* Floating Locate Button (FAB) */}
+      <Pressable
+        accessibilityLabel="Vị trí của tôi"
+        accessibilityRole="button"
+        onPress={() => void handleFocusCurrentLocation()}
+        style={({ pressed }) => [
+          styles.floatingLocateButton,
+          { bottom: locateFabBottom },
+          pressed && styles.pressed,
+        ]}
+      >
+        <AppIcon
+          name="locate"
+          size={22}
+          color="#FFFFFF"
+          containerSize={28}
+        />
+      </Pressable>
+
+      {isLoading ? (
+        <View style={styles.centerOverlay} pointerEvents="none">
+          <View style={styles.overlayCard}>
+            <ActivityIndicator color={engineerColors.brandPrimary} />
+            <Text style={styles.overlayText}>Đang tải bản đồ tác nghiệp...</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {!isLoading && error ? (
+        <View style={styles.centerOverlay}>
+          <View style={styles.overlayCard}>
+            <Text style={styles.overlayError}>{error}</Text>
+            <AppButton label={getFieldEngineerUiLabel('commonRetry')} onPress={() => void loadMapData()} />
+          </View>
+        </View>
+      ) : null}
+
+      {!isLoading && !error && reports.length === 0 ? <MapEmptyOverlay /> : null}
+
+      {selectedTask && primaryAction ? (
+        <MapSelectionCard
+          title={selectedTask.title}
+          statusLabel={selectedMeta?.shortLabel || selectedTask.fieldStatusLabel}
+          statusColor={selectedMeta?.color || colors.primaryDark}
+          statusBackgroundColor={selectedMeta?.backgroundColor || '#EEF5FF'}
+          statusBorderColor={selectedMeta?.borderColor || '#B8D5FF'}
+          address={selectedTask.address || getFieldEngineerUiLabel('mapSelectionAddressFallback')}
+          hint={buildTaskAvailabilityHint(selectedTask)}
+          distanceMeters={selectedDistanceMeters}
+          bottomOffset={selectionBottomOffset}
+          onClose={() => setSelectedTask(null)}
+          primaryAction={primaryAction}
+          secondaryActions={[
+            {
+              key: 'detail',
+              label: 'Xem hồ sơ',
+              onPress: () => navigation.navigate('EngineerTaskDetail', { reportId: selectedTask.id }),
+            },
+            {
+              key: 'focus',
+              label: 'Định vị',
+              onPress: () => handleFocusTask(selectedTask),
+            },
+          ]}
+          footerMessage={selectionFooter}
+        />
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
   container: {
     flex: 1,
-  },
-  mapWrap: {
-    flex: 1,
-    overflow: 'hidden',
     position: 'relative',
+    backgroundColor: '#F8FAFC',
+  },
+  topPanelWrap: {
+    position: 'absolute',
+    left: engineerSpacing.md,
+    right: engineerSpacing.md,
+    zIndex: 20,
+  },
+  floatingLocateButton: {
+    position: 'absolute',
+    right: engineerSpacing.md,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: engineerColors.brandPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 25,
+  },
+  pressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.96 }],
   },
   centerOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+    zIndex: 25,
   },
   overlayCard: {
     gap: spacing.sm,
@@ -324,15 +478,20 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: 'rgba(255,255,255,0.96)',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 5,
   },
   overlayText: {
-    color: colors.text,
+    color: '#0B132B',
     fontSize: 13,
     fontWeight: '700',
   },
   overlayError: {
-    color: colors.danger,
+    color: '#EF4444',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',

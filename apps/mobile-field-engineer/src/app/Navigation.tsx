@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getFieldEngineerUiLabel } from '../../../../packages/shared-constants/src/engineerLabels';
-import { AppIcon, colors, iconSize, spacing, touchTarget } from '../../../../packages/mobile-shared/src';
+import { AppIcon, colors, iconSize, spacing, touchTarget, UnifiedLoginScreen } from '../../../../packages/mobile-shared/src';
 import { configureMobileApiClient } from '../services/configureApiClient';
-import { bootstrapEngineerSession } from '../services/authService';
+import { bootstrapEngineerSession, getCachedAuthUser } from '../services/authService';
 import EngineerLoginScreen from '../features/auth/EngineerLoginScreen';
 import EngineerHomeScreen from '../features/home/EngineerHomeScreen';
 import EngineerMapScreen from '../features/map/EngineerMapScreen';
@@ -17,6 +17,7 @@ import EngineerSurveyScreen from '../features/tasks/EngineerSurveyScreen';
 import EngineerAttachmentsScreen from '../features/tasks/EngineerAttachmentsScreen';
 import EngineerHistoryScreen from '../features/tasks/EngineerHistoryScreen';
 import EngineerProfileScreen from '../features/profile/EngineerProfileScreen';
+import EngineerTabBar from '../components/EngineerTabBar';
 import type { EngineerAuthStackParamList, EngineerBottomTabParamList, EngineerRootStackParamList } from '../types/navigation';
 
 const AuthStack = createNativeStackNavigator<EngineerAuthStackParamList>();
@@ -24,8 +25,9 @@ const RootStack = createNativeStackNavigator<EngineerRootStackParamList>();
 const BottomTab = createBottomTabNavigator<EngineerBottomTabParamList>();
 
 export default function Navigation() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const initialUser = getCachedAuthUser();
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialUser));
+  const [isAuthReady, setIsAuthReady] = useState(Boolean(initialUser));
   const [authBootstrapError, setAuthBootstrapError] = useState('');
   const [authBootstrapAttempt, setAuthBootstrapAttempt] = useState(0);
 
@@ -33,7 +35,9 @@ export default function Navigation() {
     let isMounted = true;
 
     const runSessionBootstrap = async () => {
-      setIsAuthReady(false);
+      if (!initialUser) {
+        setIsAuthReady(false);
+      }
       setAuthBootstrapError('');
 
       try {
@@ -115,7 +119,7 @@ function AuthNavigator({ onLogin }: { onLogin: () => void }) {
       screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
     >
       <AuthStack.Screen name="Login">
-        {(props) => <EngineerLoginScreen {...props} onLogin={onLogin} />}
+        {() => <UnifiedLoginScreen onLogin={onLogin} />}
       </AuthStack.Screen>
     </AuthStack.Navigator>
   );
@@ -125,46 +129,28 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
   return (
     <BottomTab.Navigator
       id="engineer-main-tabs"
-      screenOptions={({ route }) => ({
+      initialRouteName="Home"
+      tabBar={(props) => <EngineerTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#00B4D8',
-        tabBarInactiveTintColor: '#64748B',
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '800',
-          letterSpacing: 0.2,
-        },
         tabBarStyle: {
-          height: 68,
-          paddingTop: 6,
-          paddingBottom: 8,
-          backgroundColor: '#0B132B',
-          borderTopColor: '#1C2541',
-          borderTopWidth: 2,
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
         },
-        tabBarIcon: ({ color, size }) => {
-          const iconName =
-            route.name === 'Home'
-              ? 'speedometer-outline'
-              : route.name === 'Map'
-                ? 'map-outline'
-                : route.name === 'Tasks'
-                  ? 'clipboard-outline'
-                  : 'person-circle-outline';
-
-          return <AppIcon name={iconName} size={size} color={color} containerSize={28} />;
-        },
-      })}
+      }}
     >
-      <BottomTab.Screen name="Home" component={EngineerHomeScreen} options={{ title: 'Trung tâm' }} />
-      <BottomTab.Screen name="Map" component={EngineerMapScreen} options={{ title: 'Bản đồ Radar' }} />
-      <BottomTab.Screen name="Tasks" component={EngineerTasksScreen} options={{ title: 'Phiếu tác nghiệp' }} />
-      <BottomTab.Screen name="Profile">
+      <BottomTab.Screen name="Home" component={EngineerHomeScreen} options={{ title: 'Trang chủ' }} />
+      <BottomTab.Screen name="Map" component={EngineerMapScreen} options={{ title: 'Bản đồ' }} />
+      <BottomTab.Screen name="Tasks" component={EngineerTasksScreen} options={{ title: 'Tác nghiệp' }} />
+      <BottomTab.Screen name="Profile" options={{ title: 'Tài khoản' }}>
         {(props) => <EngineerProfileScreen {...props} onLogout={onLogout} />}
       </BottomTab.Screen>
     </BottomTab.Navigator>
   );
 }
+
 
 function RootNavigator({ onLogout }: { onLogout: () => void }) {
   return (
@@ -172,16 +158,16 @@ function RootNavigator({ onLogout }: { onLogout: () => void }) {
       id="engineer-root-stack"
       screenOptions={({ navigation }) => ({
         headerTitleAlign: 'center',
-        headerTintColor: '#FFFFFF',
+        headerTintColor: '#0B132B',
         headerStyle: {
-          backgroundColor: '#0B132B',
+          backgroundColor: '#FFFFFF',
         },
         headerTitleStyle: {
           fontWeight: '900',
           fontSize: 16,
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
         },
-        contentStyle: { backgroundColor: '#EDF2F7' },
+        contentStyle: { backgroundColor: '#F8FAFC' },
         headerLeft: ({ canGoBack }) =>
           canGoBack ? (
             <Pressable
@@ -196,7 +182,7 @@ function RootNavigator({ onLogout }: { onLogout: () => void }) {
                 justifyContent: 'center',
               }}
             >
-              <AppIcon name="chevron-back" size={iconSize.nav} color="#00B4D8" containerSize={32} />
+              <AppIcon name="chevron-back" size={iconSize.nav} color="#0F52BA" containerSize={32} />
             </Pressable>
           ) : undefined,
       })}
@@ -207,27 +193,27 @@ function RootNavigator({ onLogout }: { onLogout: () => void }) {
       <RootStack.Screen
         name="EngineerTaskDetail"
         component={EngineerTaskDetailScreen}
-        options={{ title: 'HỒ SƠ TÁC NGHIỆP' }}
+        options={{ title: 'Hồ sơ tác nghiệp' }}
       />
       <RootStack.Screen
         name="EngineerCheckIn"
         component={EngineerCheckInScreen}
-        options={{ title: 'XÁC THỰC HIỆN TRƯỜNG' }}
+        options={{ title: 'Xác thực hiện trường' }}
       />
       <RootStack.Screen
         name="EngineerSurvey"
         component={EngineerSurveyScreen}
-        options={{ title: 'PHIẾU KHẢO SÁT KỸ THUẬT' }}
+        options={{ title: 'Phiếu khảo sát kỹ thuật' }}
       />
       <RootStack.Screen
         name="EngineerAttachments"
         component={EngineerAttachmentsScreen}
-        options={{ title: 'HỒ SƠ ẢNH HIỆN TRƯỜNG' }}
+        options={{ title: 'Hồ sơ ảnh hiện trường' }}
       />
       <RootStack.Screen
         name="EngineerHistory"
         component={EngineerHistoryScreen}
-        options={{ title: 'NHẬT KÝ TÁC NGHIỆP' }}
+        options={{ title: 'Nhật ký tác nghiệp' }}
       />
     </RootStack.Navigator>
   );

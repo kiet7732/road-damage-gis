@@ -1,6 +1,8 @@
 import {
   bootstrapMobileSession,
+  changeMobilePassword,
   fetchCurrentMobileUser,
+  getCachedAuthUser,
   getLoginErrorMessage,
   login,
   logout,
@@ -15,7 +17,7 @@ const ENGINEER_ROLES = new Set(['field_engineer', 'engineer', 'engineer_staff'])
 const isEngineerRole = (role?: string | null): boolean =>
   ENGINEER_ROLES.has(String(role || '').trim().toLowerCase());
 
-export { getLoginErrorMessage };
+export { changeMobilePassword, getCachedAuthUser, getLoginErrorMessage };
 
 export async function loginEngineer(payload: LoginPayload): Promise<AuthSession> {
   const session = await login(payload);

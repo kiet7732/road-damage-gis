@@ -1,0 +1,26 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: rdg-postgis
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-road_damage_gis}
+      POSTGRES_USER: ${POSTGRES_USER:-rdg_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rdg_secret_postgis_2026}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./docker/postgis/initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rdg_admin} -d ${POSTGRES_DB:-road_damage_gis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    shm_size: 512mb
+
+volumes:
+  postgis_data:
+    name: rdg_postgis_data

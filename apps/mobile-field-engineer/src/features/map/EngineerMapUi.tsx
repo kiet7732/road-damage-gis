@@ -9,6 +9,91 @@ type MapHeaderProps = {
   count?: number;
 };
 
+type MapFloatingHeaderProps = {
+  title: string;
+  subtitle: string;
+  count?: number;
+  legendItems?: Array<{
+    key: string;
+    label: string;
+    color: string;
+    count: number;
+  }>;
+  isLegendExpanded?: boolean;
+  onToggleLegend?: () => void;
+};
+
+export function MapFloatingHeader({
+  title,
+  subtitle,
+  count,
+  legendItems = [],
+  isLegendExpanded = false,
+  onToggleLegend,
+}: MapFloatingHeaderProps) {
+  return (
+    <View style={styles.floatingHeaderWrap}>
+      <View style={styles.floatingHeaderRow}>
+        <View style={styles.floatingHeaderLeft}>
+          <View style={styles.headerIconBox}>
+            <AppIcon name="map-outline" size={18} color={engineerColors.brandAccent} containerSize={24} />
+          </View>
+          <View style={styles.floatingHeaderTitleWrap}>
+            <Text style={styles.floatingHeaderTitle}>{title}</Text>
+            <Text style={styles.floatingHeaderSubtitle} numberOfLines={1}>{subtitle}</Text>
+          </View>
+        </View>
+
+        <View style={styles.floatingHeaderRight}>
+          {typeof count === 'number' ? (
+            <View style={styles.headerCountBadge}>
+              <Text style={styles.headerCountNum}>{count}</Text>
+              <Text style={styles.headerCountUnit}>ĐIỂM</Text>
+            </View>
+          ) : null}
+
+          {legendItems.length > 0 && onToggleLegend ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isLegendExpanded ? 'Thu gọn chú giải' : 'Mở chú giải bản đồ'}
+              onPress={onToggleLegend}
+              style={({ pressed }) => [
+                styles.legendToggleButton,
+                isLegendExpanded && styles.legendToggleButtonActive,
+                pressed && styles.pressed,
+              ]}
+            >
+              <AppIcon
+                name="layers-outline"
+                size={16}
+                color={isLegendExpanded ? '#FFFFFF' : engineerColors.brandAccent}
+                containerSize={20}
+              />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {isLegendExpanded && legendItems.length > 0 ? (
+        <View style={styles.legendExpandedPanel}>
+          <Text style={styles.legendTitle}>PHÂN LOẠI TRẠNG THÁI HIỆN TRƯỜNG</Text>
+          <View style={styles.legendGrid}>
+            {legendItems.map((item) => (
+              <View key={item.key} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                <Text style={styles.legendLabel}>
+                  {item.label}
+                </Text>
+                <Text style={styles.legendCount}>({item.count})</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 type MapLegendCompactProps = {
   items: Array<{
     key: string;
@@ -29,6 +114,7 @@ type MapSelectionCardProps = {
   address: string;
   hint: string;
   distanceMeters?: number | null;
+  onClose?: () => void;
   primaryAction: {
     label: string;
     onPress: () => void;
@@ -41,6 +127,7 @@ type MapSelectionCardProps = {
     onPress: () => void;
   }>;
   footerMessage?: string | null;
+  bottomOffset?: number;
 };
 
 export function MapHeader({ title, subtitle, count }: MapHeaderProps) {
@@ -124,14 +211,16 @@ export function MapSelectionCard({
   address,
   hint,
   distanceMeters,
+  onClose,
   primaryAction,
   secondaryActions,
   footerMessage,
+  bottomOffset,
 }: MapSelectionCardProps) {
   const isWithinRadius = typeof distanceMeters === 'number' && distanceMeters <= 30;
 
   return (
-    <View style={styles.selectionWrap}>
+    <View style={[styles.selectionWrap, bottomOffset !== undefined && { bottom: bottomOffset }]}>
       <View style={styles.selectionCard}>
         {/* Top header row */}
         <View style={styles.selectionTopRow}>
@@ -154,15 +243,27 @@ export function MapSelectionCard({
             <Text numberOfLines={1} style={styles.selectionAddress}>📍 {address}</Text>
           </View>
 
-          <View
-            style={[
-              styles.selectionPill,
-              { backgroundColor: statusBackgroundColor, borderColor: statusBorderColor },
-            ]}
-          >
-            <Text style={[styles.selectionPillText, { color: statusColor }]} numberOfLines={1}>
-              {statusLabel}
-            </Text>
+          <View style={styles.selectionTopRight}>
+            <View
+              style={[
+                styles.selectionPill,
+                { backgroundColor: statusBackgroundColor, borderColor: statusBorderColor },
+              ]}
+            >
+              <Text style={[styles.selectionPillText, { color: statusColor }]} numberOfLines={1}>
+                {statusLabel}
+              </Text>
+            </View>
+            {onClose ? (
+              <Pressable
+                accessibilityLabel="Đóng chi tiết"
+                accessibilityRole="button"
+                onPress={onClose}
+                style={({ pressed }) => [styles.selectionCloseButton, pressed && styles.pressed]}
+              >
+                <AppIcon name="close" size={16} color="#64748B" containerSize={22} />
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -207,12 +308,103 @@ export function MapSelectionCard({
 }
 
 const styles = StyleSheet.create({
+  floatingHeaderWrap: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: engineerSpacing.md,
+    paddingVertical: 10,
+    borderRadius: engineerRadius.md,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  floatingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  floatingHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 0,
+  },
+  floatingHeaderTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  floatingHeaderTitle: {
+    color: '#0B132B',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  floatingHeaderSubtitle: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  floatingHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EEF5FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legendToggleButtonActive: {
+    backgroundColor: '#0F52BA',
+    borderColor: '#0F52BA',
+  },
+  legendExpandedPanel: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    gap: 6,
+  },
+  legendGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  selectionTopRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  selectionCloseButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   headerWrap: {
-    backgroundColor: engineerColors.headerBg,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: engineerSpacing.lg,
     paddingVertical: engineerSpacing.sm,
-    borderBottomWidth: 2,
-    borderBottomColor: engineerColors.headerBorder,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
@@ -227,38 +419,40 @@ const styles = StyleSheet.create({
   headerIconBox: {
     width: 32,
     height: 32,
-    borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
+    borderRadius: 8,
+    backgroundColor: '#EEF5FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: '#0B132B',
     fontSize: 14,
     fontWeight: '900',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   headerSubtitle: {
-    color: engineerColors.textOnDarkMuted,
+    color: '#64748B',
     fontSize: 11,
   },
   headerCountBadge: {
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: engineerRadius.xs,
-    backgroundColor: engineerColors.headerSurface,
+    borderRadius: 8,
+    backgroundColor: '#EEF5FF',
     borderWidth: 1,
-    borderColor: engineerColors.headerBorder,
+    borderColor: '#DBEAFE',
   },
   headerCountNum: {
-    color: engineerColors.brandAccent,
+    color: '#0F52BA',
     fontSize: 14,
     fontWeight: '900',
     fontFamily: 'monospace',
   },
   headerCountUnit: {
-    color: engineerColors.textOnDarkMuted,
+    color: '#64748B',
     fontSize: 8,
     fontWeight: '800',
   },
@@ -279,10 +473,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     paddingHorizontal: 10,
-    borderRadius: engineerRadius.xs,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: engineerColors.borderDark,
-    backgroundColor: engineerColors.headerBg,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
   },
   legendToggleLeft: {
     flexDirection: 'row',
@@ -290,7 +489,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   legendToggleText: {
-    color: engineerColors.brandAccent,
+    color: '#0F52BA',
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 0.2,
@@ -299,13 +498,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 4,
     padding: engineerSpacing.sm,
-    borderRadius: engineerRadius.xs,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: engineerColors.borderDark,
-    backgroundColor: engineerColors.headerBg,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 6,
+    elevation: 4,
   },
   legendTitle: {
-    color: engineerColors.textOnDarkMuted,
+    color: '#475569',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.3,
@@ -315,6 +519,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    paddingVertical: 2,
   },
   legendDot: {
     width: 8,
@@ -322,16 +527,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   legendLabel: {
-    flex: 1,
-    color: '#FFFFFF',
+    color: '#1E293B',
     fontSize: 11,
     fontWeight: '700',
   },
   legendCount: {
     color: engineerColors.brandAccent,
     fontSize: 11,
-    fontWeight: '900',
-    fontFamily: 'monospace',
+    fontWeight: '800',
   },
   centerOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -352,18 +555,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: engineerSpacing.md,
     right: engineerSpacing.md,
-    bottom: engineerSpacing.md,
+    bottom: 76,
     zIndex: 15,
   },
   selectionCard: {
-    gap: 8,
-    padding: engineerSpacing.md,
-    borderRadius: engineerRadius.lg,
+    gap: 6,
+    padding: 12,
+    borderRadius: engineerRadius.md,
     borderWidth: 1,
     borderColor: engineerColors.borderLight,
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
     elevation: 6,
@@ -416,6 +619,8 @@ const styles = StyleSheet.create({
   selectionAddress: {
     color: engineerColors.textSecondary,
     fontSize: 12,
+    lineHeight: 18,
+    paddingVertical: 1,
   },
   selectionPill: {
     alignSelf: 'flex-start',
@@ -448,8 +653,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   primaryButton: {
-    minHeight: 44,
-    borderRadius: engineerRadius.sm,
+    minHeight: 38,
+    borderRadius: engineerRadius.xs,
     backgroundColor: engineerColors.brandPrimary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -457,7 +662,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
     letterSpacing: 0.3,
   },
@@ -467,7 +672,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 34,
     borderRadius: engineerRadius.xs,
     borderWidth: 1,
     borderColor: engineerColors.borderMedium,

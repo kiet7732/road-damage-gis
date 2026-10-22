@@ -13,7 +13,7 @@ type Props = {
 export default function EngineerPhotoViewer({ visible, imageUri, title = 'Ảnh hiện trường', onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [photoNaturalSize, setPhotoNaturalSize] = useState({ width: 1, height: 1 });
+  const [photoNaturalSize, setPhotoNaturalSize] = useState({ width: 3, height: 4 });
   const [photoZoom, setPhotoZoom] = useState(1);
 
   useEffect(() => {
@@ -164,7 +164,7 @@ function getFittedImageSize(maxWidth: number, maxHeight: number, aspectRatio: nu
 const styles = StyleSheet.create({
   viewerOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(3, 8, 19, 0.88)',
+    backgroundColor: 'rgba(3, 8, 19, 0.96)',
   },
   safeArea: {
     flex: 1,
@@ -173,27 +173,29 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   viewerHeader: {
-    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-    gap: spacing.md,
+    gap: spacing.xs,
   },
   viewerTitleWrap: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    flexShrink: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   viewerTitle: {
     color: colors.surface,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   viewerControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-end',
-    gap: spacing.sm,
+    gap: 6,
   },
   viewerControlButton: {
     width: 42,

@@ -56,6 +56,11 @@ const mapGeoJsonFeatureToMapItem = (feature) => {
     status: properties.status,
     damage_type: properties.damage_type,
     damage_label: properties.damage_label,
+    road_name: properties.road_name || null,
+    ward: properties.ward || null,
+    district: properties.district || null,
+    province: properties.province || null,
+    formatted_address: properties.formatted_address || null,
     corrected_damage_type: properties.corrected_damage_type,
     is_ai_overridden: Boolean(properties.is_ai_overridden),
     confidence: properties.confidence,
@@ -64,10 +69,66 @@ const mapGeoJsonFeatureToMapItem = (feature) => {
   };
 };
 
+let cachedHierarchy = null;
+let cachedHierarchyPromise = null;
+
+export async function fetchAdministrativeHierarchy() {
+  if (cachedHierarchy) {
+    return cachedHierarchy;
+  }
+  if (cachedHierarchyPromise) {
+    return cachedHierarchyPromise;
+  }
+
+  cachedHierarchyPromise = api
+    .get('/gis/administrative-hierarchy')
+    .then((response) => {
+      cachedHierarchy = response;
+      cachedHierarchyPromise = null;
+      return response;
+    })
+    .catch((err) => {
+      cachedHierarchyPromise = null;
+      throw err;
+    });
+
+  return cachedHierarchyPromise;
+}
+
+export async function fetchReportClustersGis({
+  eps = 0.003,
+  minPoints = 2,
+  status = '',
+  district = '',
+  ward = '',
+} = {}) {
+  const params = {
+    eps,
+    min_points: minPoints,
+  };
+
+  if (status) {
+    params.status = status;
+  }
+  if (district?.trim()) {
+    params.district = district.trim();
+  }
+  if (ward?.trim()) {
+    params.ward = ward.trim();
+  }
+
+  const response = await api.get('/gis/reports/clusters', { params });
+  return Array.isArray(response) ? response : [];
+}
+
 export async function fetchAdminReportsGis({
   status = '',
   damageType = '',
   periodDays = '',
+  province = '',
+  district = '',
+  ward = '',
+  roadName = '',
   bounds = null,
   limit = DEFAULT_MAP_LIMIT,
 } = {}) {
@@ -87,11 +148,25 @@ export async function fetchAdminReportsGis({
     params.period_days = Number(periodDays);
   }
 
-  if (bounds?.southWest && bounds?.northEast) {
-    params.min_latitude = bounds.southWest.lat;
-    params.max_latitude = bounds.northEast.lat;
-    params.min_longitude = bounds.southWest.lng;
-    params.max_longitude = bounds.northEast.lng;
+  if (district?.trim()) {
+    params.district = district.trim();
+  }
+
+  if (ward?.trim()) {
+    params.ward = ward.trim();
+  }
+
+  if (roadName?.trim()) {
+    params.road_name = roadName.trim();
+  }
+
+  if (!district?.trim() && !ward?.trim() && !roadName?.trim()) {
+    if (bounds?.southWest && bounds?.northEast) {
+      params.min_latitude = bounds.southWest.lat;
+      params.max_latitude = bounds.northEast.lat;
+      params.min_longitude = bounds.southWest.lng;
+      params.max_longitude = bounds.northEast.lng;
+    }
   }
 
   const response = await api.get('/admin/gis/reports', { params });

@@ -41,6 +41,26 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = Field(default=20, alias="AI_TIMEOUT_SECONDS")
     gis_backend: str = Field(default="sqlite", alias="GIS_BACKEND")
     gis_srid: int = Field(default=4326, alias="GIS_SRID")
+    read_only_mode: bool = Field(default=False, alias="READ_ONLY_MODE")
+    maintenance_mode: bool = Field(default=False, alias="MAINTENANCE_MODE")
+    postgres_host: str = Field(default="127.0.0.1", alias="POSTGRES_HOST")
+    postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
+    postgres_db: str = Field(default="road_damage_gis", alias="POSTGRES_DB")
+    postgres_user: str = Field(default="rdg_admin", alias="POSTGRES_USER")
+    postgres_password: str = Field(default="rdg_secret_postgis_2026", alias="POSTGRES_PASSWORD")
+    postgres_pool_min_size: int = Field(default=5, alias="POSTGRES_POOL_MIN_SIZE")
+    postgres_pool_max_size: int = Field(default=20, alias="POSTGRES_POOL_MAX_SIZE")
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    nominatim_server_url: str = Field(default="http://localhost:8080", alias="NOMINATIM_SERVER_URL")
+    nominatim_fallback_url: str = Field(
+        default="https://nominatim.openstreetmap.org", alias="NOMINATIM_FALLBACK_URL"
+    )
+    nominatim_timeout_seconds: float = Field(default=2.0, alias="NOMINATIM_TIMEOUT_SECONDS")
+    geocoding_cache_radius_meters: float = Field(default=15.0, alias="GEOCODING_CACHE_RADIUS_METERS")
+    nominatim_user_agent: str = Field(
+        default="RoadDamageGIS/1.0 (contact: admin@roaddamagegis.local)",
+        alias="NOMINATIM_USER_AGENT",
+    )
     jwt_secret_key: str = Field(default="change-me-in-production", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=30, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
@@ -60,9 +80,28 @@ class Settings(BaseSettings):
     cors_allowed_origins_staging: str = Field(default="", alias="CORS_ALLOWED_ORIGINS_STAGING")
     cors_allowed_origins_prod: str = Field(default="", alias="CORS_ALLOWED_ORIGINS_PROD")
 
+    # SMTP / Email OTP
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from_email: str = Field(default="noreply@roadgis.local", alias="SMTP_FROM_EMAIL")
+    smtp_from_name: str = Field(default="Road Damage GIS", alias="SMTP_FROM_NAME")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    otp_expire_seconds: int = Field(default=300, alias="OTP_EXPIRE_SECONDS")
+
     @property
     def resolved_database_path(self) -> Path:
         return (BASE_DIR / self.database_path).resolve()
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.database_url and self.database_url.strip():
+            return self.database_url.strip()
+        return (
+            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
     @property
     def resolved_upload_dir(self) -> Path:
@@ -75,6 +114,14 @@ class Settings(BaseSettings):
     @property
     def ai_detect_url(self) -> str:
         return f"{self.ai_service_url.rstrip('/')}/{self.ai_detect_endpoint.lstrip('/')}"
+
+    @property
+    def normalized_nominatim_server_url(self) -> str:
+        return self.nominatim_server_url.rstrip("/")
+
+    @property
+    def normalized_nominatim_fallback_url(self) -> str:
+        return self.nominatim_fallback_url.rstrip("/")
 
     @property
     def normalized_backend_public_base_url(self) -> str:

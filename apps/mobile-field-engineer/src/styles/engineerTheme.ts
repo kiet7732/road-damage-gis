@@ -4,22 +4,22 @@
  */
 
 export const engineerColors = {
-  // Nền & Khung chính - Slate Navy & Dark Graphite
-  headerBg: '#0B132B',
-  headerSurface: '#1C2541',
-  headerBorder: '#2C3A5A',
+  // Nền & Khung chính - Đồng bộ tông màu sáng thanh lịch của hệ thống
+  headerBg: '#FFFFFF',
+  headerSurface: '#FFFFFF',
+  headerBorder: '#E2E8F0',
   
   // Nền ứng dụng ngoài trời
-  background: '#EDF2F7',
+  background: '#F8FAFC',
   surface: '#FFFFFF',
   surfaceMuted: '#F1F5F9',
   surfaceCard: '#FFFFFF',
-  surfaceCardDark: '#1E293B',
+  surfaceCardDark: '#FFFFFF',
   
   // Màu thương hiệu & Tác nghiệp Kỹ thuật
-  brandPrimary: '#0F52BA', // Xanh sapphire đậm
+  brandPrimary: '#0F52BA', // Xanh sapphire đậm đồng bộ toàn hệ thống
   brandDark: '#0B132B',
-  brandAccent: '#00B4D8',  // Cyan kỹ thuật
+  brandAccent: '#0F52BA',  // Xanh sapphire chủ đạo
   
   // Màu an toàn & Trạng thái Công trường
   safetyAmber: '#F77F00',  // Cam an toàn công trường

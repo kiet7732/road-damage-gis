@@ -13,6 +13,7 @@ import DamageMapPage from '../pages/MapManagement/DamageMapPage';
 import ReportDetailPage from '../pages/Reports/ReportDetailPage';
 import ReportsPage from '../pages/Reports/ReportsPage';
 import StatisticsPage from '../pages/Statistics/StatisticsPage';
+import UsersManagementPage from '../pages/Users/UsersManagementPage';
 
 type AppRouterProps = {
   isAuthenticated: boolean;
@@ -44,6 +45,7 @@ export default function AppRouter({
           <Route path="reports/manual-review" element={<ReportsPage mode="manual-review" />} />
           <Route path="reports/:reportId" element={<ReportDetailPage />} />
           <Route path="statistics" element={<StatisticsPage />} />
+          <Route path="users" element={<UsersManagementPage />} />
           <Route path="account" element={<AccountPage />} />
         </Route>
       </Route>

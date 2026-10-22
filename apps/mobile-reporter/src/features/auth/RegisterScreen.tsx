@@ -225,7 +225,7 @@ export default function RegisterScreen({ navigation, onRegisterSuccess }: Regist
           automaticallyAdjustKeyboardInsets
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={isKeyboardVisible}
+          scrollEnabled={Platform.OS === 'web' || isKeyboardVisible || height < 800}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.scrollContent,
@@ -272,6 +272,9 @@ export default function RegisterScreen({ navigation, onRegisterSuccess }: Regist
                   </Text>
                   <Text selectable style={[styles.title, { fontSize: titleSize, lineHeight: titleLineHeight }]}>
                     Đăng ký tài khoản
+                  </Text>
+                  <Text selectable style={styles.roleNoticeText}>
+                    Dành cho Người dân phản ánh sự cố. Tài khoản Kỹ sư do Ban Quản trị cấp phép.
                   </Text>
                 </View>
               </View>
@@ -590,6 +593,12 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 28,
     fontWeight: '900',
+  },
+  roleNoticeText: {
+    color: '#1E40AF',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
   },
   form: {
     gap: spacing.md,

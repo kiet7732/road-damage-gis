@@ -11,3 +11,6 @@ export {
   KpiSkeletonGrid,
 } from './components/Skeleton';
 export { default as StateMessage } from './components/StateMessage';
+export { default as UnifiedLoginScreen } from './components/UnifiedLoginScreen';
+export { default as ForgotPasswordModal } from './components/ForgotPasswordModal';
+

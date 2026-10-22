@@ -5,27 +5,25 @@ import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AppButton from '../../components/AppButton';
 import AppIcon from '../../components/AppIcon';
 import BlockingOverlay from '../../components/BlockingOverlay';
-import { colors, iconSize, radius, spacing, touchTarget } from '../../constants/theme';
+import { colors, iconSize, radius, spacing } from '../../constants/theme';
 import {
   getSubmitReportErrorMessage,
   MAX_GPS_ACCURACY_METERS,
   MAX_REPORT_IMAGE_DIMENSION,
   previewRoadDamageDetection,
 } from '../../services/reportService';
+import { ensureLocationReady } from '../../services/locationService';
 import type { GpsLocation, RootStackParamList } from '../../types/navigation';
 import FocusFrame from './components/FocusFrame';
-import GpsStatusCard from './components/GpsStatusCard';
-import NoGalleryNotice from './components/NoGalleryNotice';
 
 type CameraScreenProps = NativeStackScreenProps<RootStackParamList, 'CameraScreen'>;
 
 export default function CameraScreen({ navigation }: CameraScreenProps) {
-  const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView | null>(null);
   const isMountedRef = useRef(true);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -49,14 +47,26 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
     setGpsError('');
 
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const readiness = await ensureLocationReady({
+        requestPermission: true,
+        promptAlert: true,
+      });
 
-      if (!permission.granted) {
+      if (!readiness.permissionGranted) {
         if (!isMountedRef.current) {
           return;
         }
         setGps(null);
         setGpsError('Ứng dụng cần quyền vị trí để ghi nhận nơi xảy ra hư hỏng.');
+        return;
+      }
+
+      if (!readiness.servicesEnabled) {
+        if (!isMountedRef.current) {
+          return;
+        }
+        setGps(null);
+        setGpsError('Vui lòng bật định vị GPS trên thiết bị để chụp ảnh hiện trường.');
         return;
       }
 
@@ -130,8 +140,9 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
 
     try {
       setIsCapturing(true);
+
       const photo = await cameraRef.current?.takePictureAsync({
-        quality: 0.82,
+        quality: 0.85,
         skipProcessing: false,
       });
 
@@ -174,7 +185,7 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
             rawPhoto.delete();
           }
         } catch {
-          // Bỏ qua lỗi dọn file ảnh gốc tạm thời.
+          // Ignore temp cleanup errors
         }
       }
 
@@ -220,8 +231,12 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
           initialPreviewPhotoUri: optimizedPhoto.uri,
         });
       }
-    } catch {
+    } catch (error) {
       if (!isMountedRef.current) {
+        return;
+      }
+      if (error instanceof Error && error.message) {
+        setCameraError(getSubmitReportErrorMessage(error.message));
         return;
       }
       setCameraError('Không xử lý được ảnh chụp. Vui lòng thử lại.');
@@ -244,7 +259,7 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
   if (!cameraPermission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <AppIcon name="camera-outline" size={iconSize.xl} color={colors.primaryDark} containerSize={56} />
+        <AppIcon name="camera-outline" size={56} color={colors.primaryDark} containerSize={56} />
         <Text selectable style={styles.permissionTitle}>
           Cần quyền truy cập camera
         </Text>
@@ -259,87 +274,96 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      {isCheckingPhoto ? <View style={styles.cameraPausedBackdrop} /> : <CameraView ref={cameraRef} style={styles.camera} facing="back" />}
+      {isCheckingPhoto ? (
+        <View style={styles.cameraPausedBackdrop} />
+      ) : (
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing="back"
+          animateShutter={false}
+        />
+      )}
       <View pointerEvents="none" style={styles.overlay} />
 
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.topSection}>
-          <View style={styles.headerWrap}>
-            <View style={styles.headerRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Quay lại"
-                hitSlop={10}
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-              >
-                <AppIcon name="arrow-back" size={18} color={colors.textOnDark} containerSize={18} />
-              </Pressable>
-              <Text selectable numberOfLines={1} adjustsFontSizeToFit style={styles.headerTitle}>
+          <View style={styles.headerBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Quay lại"
+              hitSlop={12}
+              onPress={() => navigation.goBack()}
+              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+            >
+              <AppIcon name="arrow-back" size={20} color={colors.textOnDark} containerSize={22} />
+            </Pressable>
+
+            <View style={styles.headerTitleWrap}>
+              <Text selectable numberOfLines={1} style={styles.headerTitle}>
                 Chụp ảnh hiện trường
               </Text>
+              <View style={styles.headerBadge}>
+                <View style={[styles.headerStatusDot, gps ? styles.dotReady : styles.dotPending]} />
+                <Text numberOfLines={1} style={styles.headerBadgeText}>
+                  {gps
+                    ? `${gps.latitude.toFixed(6)}, ${gps.longitude.toFixed(6)} (±${gps.accuracy}m)`
+                    : isGettingGps
+                    ? 'Đang lấy vị trí GPS...'
+                    : 'Chưa xác định vị trí'}
+                </Text>
+              </View>
             </View>
           </View>
 
-          {gps ? (
-            <GpsStatusCard gps={gps} isRefreshing={isGettingGps} />
-          ) : (
+          {gpsError ? (
             <View style={styles.gpsErrorCard}>
-              {isGettingGps ? <ActivityIndicator color={colors.primary} /> : null}
               <Text selectable style={styles.gpsErrorText}>
-              {isGettingGps ? 'Đang lấy vị trí hiện tại...' : gpsError}
+                {gpsError}
               </Text>
-              {!isGettingGps ? (
-                <AppButton label="Lấy lại vị trí" variant="outline" onPress={requestGpsLocation} />
-              ) : null}
+              <AppButton label="Lấy lại vị trí" variant="outline" onPress={requestGpsLocation} />
             </View>
-          )}
-        </View>
+          ) : null}
 
-        {cameraError ? (
-          <View style={styles.cameraErrorCard}>
-            <Text selectable style={styles.gpsErrorText}>
-              {cameraError}
-            </Text>
-          </View>
-        ) : null}
+          {cameraError ? (
+            <View style={styles.cameraErrorCard}>
+              <Text selectable style={styles.gpsErrorText}>
+                {cameraError}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.viewfinder}>
           <FocusFrame />
         </View>
 
-        <View
-          style={[
-            styles.bottomPanel,
-            { paddingBottom: Math.max(spacing.md, insets.bottom + spacing.xs) },
-          ]}
-        >
-          <NoGalleryNotice />
-          <Text selectable style={styles.captureHint}>
-            Căn vùng hư hỏng vào khung rồi chụp
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Chụp ảnh mặt đường hư hỏng"
-            disabled={isCapturing || !gps}
-            hitSlop={12}
-            onPress={handleCapture}
-            style={({ pressed }) => [
-              styles.captureButton,
-              pressed && styles.captureButtonPressed,
-              (isCapturing || !gps) && styles.captureButtonDisabled,
-            ]}
-          >
-            <View style={styles.captureButtonInner}>
-              {isCapturing ? (
-                <ActivityIndicator color={colors.cameraBackground} />
-              ) : (
-                <View style={styles.captureButtonCore} />
-              )}
-            </View>
-          </Pressable>
-          <Text selectable style={styles.captureMeta}>
-            Chụp trực tiếp để hệ thống ghi nhận đúng vị trí
+        <View style={styles.bottomPanel}>
+          <View style={styles.shutterRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Chụp ảnh mặt đường"
+              disabled={isCapturing || !gps}
+              hitSlop={16}
+              onPress={handleCapture}
+              style={({ pressed }) => [
+                styles.shutterOuterRing,
+                pressed && styles.shutterPressed,
+                (isCapturing || !gps) && styles.shutterDisabled,
+              ]}
+            >
+              <View style={styles.shutterInnerCircle}>
+                {isCapturing ? (
+                  <ActivityIndicator color="#0F172A" size="small" />
+                ) : (
+                  <View style={[styles.shutterCore, !gps && styles.shutterCoreWaiting]} />
+                )}
+              </View>
+            </Pressable>
+          </View>
+
+          <Text selectable numberOfLines={1} style={styles.captureMeta}>
+            {gps ? 'Chạm để chụp ảnh' : 'Đang chờ tín hiệu GPS...'}
           </Text>
         </View>
       </SafeAreaView>
@@ -367,14 +391,14 @@ const styles = StyleSheet.create({
   },
   permissionTitle: {
     color: colors.text,
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 20,
+    fontWeight: '800',
     textAlign: 'center',
   },
   permissionDescription: {
     color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
   },
   camera: {
@@ -382,11 +406,11 @@ const styles = StyleSheet.create({
   },
   cameraPausedBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
+    backgroundColor: colors.cameraBackground,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.cameraOverlay,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
   },
   safeArea: {
     flex: 1,
@@ -394,120 +418,131 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   topSection: {
-    gap: spacing.sm,
-    paddingTop: 2,
+    gap: spacing.xs,
+    paddingTop: 4,
   },
-  headerWrap: {
-    paddingHorizontal: 2,
-  },
-  headerRow: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    paddingHorizontal: 2,
   },
-  backButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backButtonPressed: {
-    opacity: 0.8,
+  headerTitleWrap: {
+    flex: 1,
+    marginLeft: 12,
   },
   headerTitle: {
     color: colors.textOnDark,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
   },
-  gpsErrorCard: {
-    borderRadius: 14,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: 'rgba(11, 20, 46, 0.88)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+  headerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  headerStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dotReady: {
+    backgroundColor: '#22C55E',
+  },
+  dotPending: {
+    backgroundColor: '#F59E0B',
+  },
+  headerBadgeText: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+  },
+  backButtonPressed: {
+    opacity: 0.7,
+  },
+  gpsErrorCard: {
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: 4,
   },
   gpsErrorText: {
     color: colors.textOnDark,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     textAlign: 'center',
   },
   cameraErrorCard: {
     alignSelf: 'center',
-    maxWidth: '92%',
-    borderRadius: 16,
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: 'rgba(255,92,119,0.12)',
-    borderWidth: 1,
-    borderColor: colors.dangerBorder,
+    paddingVertical: spacing.xs,
+    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+    marginTop: 4,
   },
   viewfinder: {
     flex: 1,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
+    marginVertical: spacing.md,
   },
   bottomPanel: {
     alignItems: 'center',
-    gap: 4,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: spacing.md,
-    paddingTop: 6,
-    backgroundColor: 'rgba(11, 20, 46, 0.88)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.12)',
+    gap: 12,
+    paddingBottom: spacing.lg,
   },
-  captureHint: {
-    color: colors.textOnDark,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
+  shutterRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  captureButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 2.5,
-    borderColor: '#FF8A3D',
+  shutterOuterRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  captureButtonPressed: {
-    opacity: 0.86,
+  shutterPressed: {
+    opacity: 0.8,
     transform: [{ scale: 0.94 }],
   },
-  captureButtonDisabled: {
-    opacity: 0.55,
+  shutterDisabled: {
+    opacity: 0.4,
   },
-  captureButtonInner: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surface,
+  shutterInnerCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  captureButtonCore: {
+  shutterCore: {
     width: '100%',
     height: '100%',
     borderRadius: 999,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFFFF',
+  },
+  shutterCoreWaiting: {
+    backgroundColor: '#94A3B8',
   },
   captureMeta: {
-    color: colors.textOnDarkMuted,
-    fontSize: 9,
-    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: 12,
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 0,
   },
 });

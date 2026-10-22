@@ -2,7 +2,13 @@ import {
   ApiClientError,
   api,
 } from '../../api-client/src';
-import { mobileSecureTokenStorage } from './configureApiClient';
+import {
+  MOBILE_APP_AUTH_CONTEXT_HEADER,
+  MOBILE_APP_AUTH_CONTEXT_VALUE,
+  defaultRefreshTokenHandler,
+  mobileSecureTokenStorage,
+} from './configureApiClient';
+import { isAdminRole } from './roleRouting';
 
 export type LoginPayload = {
   email: string;
@@ -47,6 +53,14 @@ export type MobileSessionBootstrapResult =
 
 export type AuthStateListener = (user: AuthUser | null) => void;
 const authStateListeners = new Set<AuthStateListener>();
+let cachedAuthUser: AuthUser | null = null;
+let lastAuthCheckTime: number = 0;
+
+export const getCachedAuthUser = (): AuthUser | null => cachedAuthUser;
+export const setCachedAuthUser = (user: AuthUser | null): void => {
+  cachedAuthUser = user;
+  lastAuthCheckTime = user ? Date.now() : 0;
+};
 
 export const subscribeAuthState = (listener: AuthStateListener): (() => void) => {
   authStateListeners.add(listener);
@@ -56,6 +70,7 @@ export const subscribeAuthState = (listener: AuthStateListener): (() => void) =>
 };
 
 export const notifyAuthStateChanged = (user: AuthUser | null): void => {
+  setCachedAuthUser(user);
   authStateListeners.forEach((listener) => {
     try {
       listener(user);
@@ -72,6 +87,7 @@ const getRefreshTokenFromResponse = (response: LoginResponse): string | null =>
   response.refreshToken || response.refresh_token || null;
 
 export const clearMobileAuthSession = async (): Promise<void> => {
+  setCachedAuthUser(null);
   await mobileSecureTokenStorage.clearTokens();
   notifyAuthStateChanged(null);
 };
@@ -127,8 +143,19 @@ export const getLoginErrorMessage = (error: unknown): string => {
       return 'Tài khoản hoặc mật khẩu không đúng.';
     }
 
+    if (error.status === 403) {
+      return (
+        error.message ||
+        'Tài khoản Quản trị viên chỉ được phép đăng nhập trên Cổng Web Quản lý (Web Admin).'
+      );
+    }
+
+    if (error.status === 422) {
+      return 'Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại email và mật khẩu.';
+    }
+
     if (error.status && error.status >= 500) {
-      return 'Hệ thống đang tạm gián đoạn. Vui lòng thử lại sau.';
+      return error.message || 'Hệ thống đang tạm gián đoạn. Vui lòng thử lại sau.';
     }
 
     return error.message || 'Không thể đăng nhập lúc này. Vui lòng thử lại.';
@@ -171,8 +198,22 @@ export const login = async (payload: LoginPayload): Promise<AuthSession> => {
     {
       skipAuth: true,
       suppressGlobalError: true,
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
     },
   );
+
+  if (response.user && isAdminRole(response.user.role)) {
+    await clearMobileAuthSession();
+    throw new ApiClientError({
+      message:
+        'Tài khoản Quản trị viên chỉ được phép đăng nhập trên Cổng Web Quản lý (Web Admin). Vui lòng sử dụng trình duyệt để truy cập Web Admin.',
+      status: 403,
+      code: 'FORBIDDEN',
+      details: response.user,
+    });
+  }
 
   return persistAuthSession(response);
 };
@@ -189,6 +230,9 @@ export const register = async (payload: RegisterPayload): Promise<AuthSession> =
     {
       skipAuth: true,
       suppressGlobalError: true,
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
     },
   );
 
@@ -205,6 +249,9 @@ export const logout = async (): Promise<void> => {
         {
           skipAuth: true,
           suppressGlobalError: true,
+          headers: {
+            [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+          },
         },
       );
     }
@@ -217,15 +264,46 @@ export const logout = async (): Promise<void> => {
 
 export const bootstrapMobileSession =
   async (): Promise<MobileSessionBootstrapResult> => {
-  const token = await mobileSecureTokenStorage.getAccessToken();
+  if (cachedAuthUser && Date.now() - lastAuthCheckTime < 20000) {
+    return { status: 'authenticated', user: cachedAuthUser };
+  }
 
-  if (!token) {
+  let token = await mobileSecureTokenStorage.getAccessToken();
+  const refreshToken = await mobileSecureTokenStorage.getRefreshToken();
+
+  if (!token && !refreshToken) {
     notifyAuthStateChanged(null);
     return { status: 'unauthenticated' };
   }
 
+  // Nếu access token chưa có nhưng có refresh token -> thử lấy lại access token
+  if (!token && refreshToken) {
+    try {
+      token = await defaultRefreshTokenHandler();
+    } catch {
+      // Refresh thất bại
+    }
+  }
+
+  if (!token) {
+    await clearMobileAuthSession();
+    return { status: 'unauthenticated' };
+  }
+
   try {
-    const user = await api.get<AuthUser>('/auth/me', { suppressGlobalError: true });
+    const user = await api.get<AuthUser>('/auth/me', {
+      suppressGlobalError: true,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
+    });
+
+    if (isAdminRole(user.role)) {
+      await clearMobileAuthSession();
+      return { status: 'unauthenticated' };
+    }
+
     notifyAuthStateChanged(user);
     return { status: 'authenticated', user };
   } catch (error) {
@@ -245,6 +323,29 @@ export const bootstrapMobileSession =
             'Hệ thống đang phản hồi chậm nên chưa thể kiểm tra phiên đăng nhập. Vui lòng thử lại sau ít phút.',
         };
       }
+
+      // Nếu token hết hạn (401) và có refresh token: thử làm mới token một lần nữa
+      if (error.status === 401 && refreshToken) {
+        try {
+          const refreshedToken = await defaultRefreshTokenHandler();
+          if (refreshedToken) {
+            const user = await api.get<AuthUser>('/auth/me', {
+              suppressGlobalError: true,
+              headers: {
+                Authorization: `Bearer ${refreshedToken}`,
+                [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+              },
+            });
+
+            if (!isAdminRole(user.role)) {
+              notifyAuthStateChanged(user);
+              return { status: 'authenticated', user };
+            }
+          }
+        } catch {
+          // Bỏ qua nếu refresh thất bại
+        }
+      }
     }
 
     await clearMobileAuthSession();
@@ -252,5 +353,99 @@ export const bootstrapMobileSession =
   }
 };
 
-export const fetchCurrentMobileUser = async (): Promise<AuthUser> =>
-  api.get<AuthUser>('/auth/me');
+export const fetchCurrentMobileUser = async (forceRefresh = false): Promise<AuthUser> => {
+  if (!forceRefresh && cachedAuthUser) {
+    return cachedAuthUser;
+  }
+
+  const user = await api.get<AuthUser>('/auth/me', {
+    headers: {
+      [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+    },
+  });
+
+  setCachedAuthUser(user);
+  return user;
+};
+
+export type ChangeMobilePasswordPayload = {
+  currentPassword: string;
+  newPassword: string;
+};
+
+export const changeMobilePassword = async (
+  payload: ChangeMobilePasswordPayload,
+): Promise<{ message: string }> => {
+  return api.post(
+    '/auth/change-password',
+    {
+      currentPassword: payload.currentPassword,
+      newPassword: payload.newPassword,
+    },
+    {
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
+    },
+  );
+};
+
+export type ForgotPasswordOtpResponse = {
+  success: boolean;
+  message: string;
+  email: string;
+  expiresIn: number;
+};
+
+export const requestPasswordResetOtp = async (
+  email: string,
+): Promise<ForgotPasswordOtpResponse> => {
+  return api.post(
+    '/auth/forgot-password/request-otp',
+    { email: email.trim().toLowerCase() },
+    {
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
+    },
+  );
+};
+
+export const verifyPasswordResetOtp = async (
+  email: string,
+  otp: string,
+): Promise<{ success: boolean; message: string }> => {
+  return api.post(
+    '/auth/forgot-password/verify-otp',
+    { email: email.trim().toLowerCase(), otp: otp.trim() },
+    {
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
+    },
+  );
+};
+
+export type ResetPasswordWithOtpPayload = {
+  email: string;
+  otp: string;
+  newPassword: string;
+};
+
+export const resetPasswordWithOtp = async (
+  payload: ResetPasswordWithOtpPayload,
+): Promise<{ success: boolean; message: string }> => {
+  return api.post(
+    '/auth/forgot-password/reset-password',
+    {
+      email: payload.email.trim().toLowerCase(),
+      otp: payload.otp.trim(),
+      newPassword: payload.newPassword,
+    },
+    {
+      headers: {
+        [MOBILE_APP_AUTH_CONTEXT_HEADER]: MOBILE_APP_AUTH_CONTEXT_VALUE,
+      },
+    },
+  );
+};

@@ -40,6 +40,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
           paddingBottom: wrapperBottomPadding,
         },
       ]}
+      pointerEvents="box-none"
     >
       <View style={styles.bar}>
         {state.routes.slice(0, 2).map((route, index) => {

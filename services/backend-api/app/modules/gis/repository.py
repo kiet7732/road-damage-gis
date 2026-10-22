@@ -1,13 +1,21 @@
+import json
 import sqlite3
+from collections import defaultdict
+from typing import Any
 from datetime import datetime, timedelta
 
 from app.config import Settings
 from app.modules.gis.schemas import (
+    AdministrativeHierarchyResponse,
+    DistrictHierarchyItem,
     GeoJsonPointGeometry,
+    GisReportClusterItem,
+    ProvinceHierarchyItem,
     ReportGeoJsonFeature,
     ReportGeoJsonFeatureCollection,
     ReportGeoJsonProperties,
 )
+from app.modules.reports.schemas import ReportMapListResponse, ReportMapPoint
 
 SQL_STATUS_EXPRESSION = """
 CASE
@@ -57,6 +65,11 @@ SELECT
     reports.is_ai_overridden,
     reports.created_at,
     reports.updated_at,
+    reports.road_name,
+    reports.ward,
+    reports.district,
+    reports.province,
+    reports.formatted_address,
     {SQL_STATUS_EXPRESSION} AS normalized_status,
     {SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION} AS effective_damage_type,
     {SQL_DAMAGE_LABEL_EXPRESSION} AS effective_damage_label,
@@ -66,7 +79,7 @@ FROM reports
 
 
 class GisRepository:
-    def __init__(self, connection: sqlite3.Connection, settings: Settings) -> None:
+    def __init__(self, connection: Any, settings: Settings) -> None:
         self.connection = connection
         self.settings = settings
 
@@ -76,6 +89,9 @@ class GisRepository:
         user_id: str | None = None,
         status: str | None = None,
         damage_type: str | None = None,
+        district: str | None = None,
+        ward: str | None = None,
+        road_name: str | None = None,
         period_days: int | None = None,
         exclude_repaired: bool = False,
         bbox: tuple[float, float, float, float] | None = None,
@@ -85,6 +101,9 @@ class GisRepository:
             user_id=user_id,
             status=status,
             damage_type=damage_type,
+            district=district,
+            ward=ward,
+            road_name=road_name,
             period_days=period_days,
             exclude_repaired=exclude_repaired,
             bbox=bbox,
@@ -124,12 +143,15 @@ class GisRepository:
     def _build_search_filters(
         self,
         *,
-        user_id: str | None,
-        status: str | None,
-        damage_type: str | None,
-        period_days: int | None,
-        exclude_repaired: bool,
-        bbox: tuple[float, float, float, float] | None,
+        user_id: str | None = None,
+        status: str | None = None,
+        damage_type: str | None = None,
+        district: str | None = None,
+        ward: str | None = None,
+        road_name: str | None = None,
+        period_days: int | None = None,
+        exclude_repaired: bool = False,
+        bbox: tuple[float, float, float, float] | None = None,
     ) -> tuple[list[str], list[object]]:
         where_clauses: list[str] = []
         params: list[object] = []
@@ -147,6 +169,21 @@ class GisRepository:
         if normalized_damage_type:
             where_clauses.append(f"{SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION} = ?")
             params.append(normalized_damage_type)
+
+        if district and district.strip():
+            d = district.strip()
+            where_clauses.append("(TRIM(COALESCE(reports.district, '')) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ?)")
+            params.extend([d, d.lower()])
+
+        if ward and ward.strip():
+            w = ward.strip()
+            where_clauses.append("(TRIM(COALESCE(reports.ward, '')) = ? OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ?)")
+            params.extend([w, w.lower()])
+
+        if road_name and road_name.strip():
+            r = road_name.strip()
+            where_clauses.append("(TRIM(COALESCE(reports.road_name, '')) = ? OR LOWER(TRIM(COALESCE(reports.road_name, ''))) = ?)")
+            params.extend([r, r.lower()])
 
         if exclude_repaired:
             where_clauses.append(f"{SQL_STATUS_EXPRESSION} <> 'repaired'")
@@ -170,6 +207,7 @@ class GisRepository:
                 params.extend([min_lat, max_lat])
 
         return where_clauses, params
+
 
     def _search_report_features_sqlite(
         self,
@@ -311,6 +349,11 @@ class GisRepository:
                 location_recorded_at=row["location_recorded_at"],
                 damage_type=row["effective_damage_type"],
                 damage_label=row["effective_damage_label"],
+                road_name=row["road_name"] if "road_name" in row.keys() else None,
+                ward=row["ward"] if "ward" in row.keys() else None,
+                district=row["district"] if "district" in row.keys() else None,
+                province=row["province"] if "province" in row.keys() else None,
+                formatted_address=row["formatted_address"] if "formatted_address" in row.keys() else None,
                 corrected_damage_type=row["corrected_damage_type"],
                 is_ai_overridden=bool(row["is_ai_overridden"]),
                 confidence=float(row["primary_confidence"]) if row["primary_confidence"] is not None else None,
@@ -318,3 +361,330 @@ class GisRepository:
                 updated_at=row["updated_at"],
             ),
         )
+
+    def _row_to_map_point(self, row: sqlite3.Row) -> ReportMapPoint:
+        image_url = self.settings.build_public_upload_url(row["image_path"])
+        return ReportMapPoint(
+            id=row["id"],
+            image_url=image_url,
+            latitude=float(row["latitude"]),
+            longitude=float(row["longitude"]),
+            gps_accuracy=float(row["gps_accuracy"]) if row["gps_accuracy"] is not None else None,
+            note=row["note"],
+            status=row["normalized_status"],
+            damage_type=row["effective_damage_type"],
+            damage_label=row["effective_damage_label"],
+            road_name=row["road_name"] if "road_name" in row.keys() else None,
+            ward=row["ward"] if "ward" in row.keys() else None,
+            district=row["district"] if "district" in row.keys() else None,
+            province=row["province"] if "province" in row.keys() else None,
+            formatted_address=row["formatted_address"] if "formatted_address" in row.keys() else None,
+            corrected_damage_type=row["corrected_damage_type"],
+            is_ai_overridden=bool(row["is_ai_overridden"]),
+            confidence=float(row["primary_confidence"]) if row["primary_confidence"] is not None else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_map_points(
+        self,
+        *,
+        district: str | None = None,
+        ward: str | None = None,
+        road_name: str | None = None,
+        status: str | None = None,
+        damage_type: str | None = None,
+        limit: int = 1500,
+    ) -> ReportMapListResponse:
+        where_clauses, params = self._build_search_filters(
+            district=district,
+            ward=ward,
+            road_name=road_name,
+            status=status,
+            damage_type=damage_type,
+        )
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+        rows = self.connection.execute(
+            f"""
+            {SQL_GIS_SELECT}
+            {where_sql}
+            ORDER BY reports.created_at DESC
+            LIMIT ?
+            """,
+            [*params, limit],
+        ).fetchall()
+
+        items = [self._row_to_map_point(row) for row in rows]
+        return ReportMapListResponse(items=items, total=len(items))
+
+    def get_administrative_hierarchy(self, *, district: str | None = None) -> AdministrativeHierarchyResponse:
+        where_clauses = ["district IS NOT NULL", "TRIM(district) <> ''"]
+        params: list[object] = []
+        if district and district.strip():
+            d = district.strip()
+            where_clauses.append("(TRIM(district) = ? OR LOWER(TRIM(district)) = ?)")
+            params.extend([d, d.lower()])
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}"
+        rows = self.connection.execute(
+            f"""
+            SELECT
+                COALESCE(NULLIF(TRIM(province), ''), 'Thành phố Hồ Chí Minh') AS province,
+                TRIM(district) AS district,
+                TRIM(ward) AS ward,
+                TRIM(road_name) AS road_name,
+                COUNT(*) AS cnt
+            FROM reports
+            {where_sql}
+            GROUP BY province, district, ward, road_name
+            ORDER BY province ASC, district ASC
+            """,
+            params,
+        ).fetchall()
+
+        tree: dict[str, dict[str, dict[str, Any]]] = {}
+        for row in rows:
+            prov = row["province"]
+            dist = row["district"]
+            ward = row["ward"]
+            road = row["road_name"]
+            cnt = int(row["cnt"])
+
+            if prov not in tree:
+                tree[prov] = {}
+            if dist not in tree[prov]:
+                tree[prov][dist] = {
+                    "wards": set(),
+                    "roads": set(),
+                    "total_reports": 0,
+                }
+
+            tree[prov][dist]["total_reports"] += cnt
+            if ward:
+                tree[prov][dist]["wards"].add(ward)
+            if road:
+                tree[prov][dist]["roads"].add(road)
+
+        provinces: list[ProvinceHierarchyItem] = []
+        for prov_name, dist_dict in sorted(tree.items(), key=lambda x: x[0]):
+            districts: list[DistrictHierarchyItem] = []
+            for dist_name, d_info in sorted(dist_dict.items(), key=lambda x: x[0]):
+                districts.append(
+                    DistrictHierarchyItem(
+                        name=dist_name,
+                        wards=sorted(list(d_info["wards"])),
+                        roads=sorted(list(d_info["roads"])),
+                        total_reports=d_info["total_reports"],
+                    )
+                )
+            provinces.append(
+                ProvinceHierarchyItem(
+                    name=prov_name,
+                    districts=districts,
+                )
+            )
+
+        return AdministrativeHierarchyResponse(provinces=provinces)
+
+    def get_report_clusters_dbscan(
+        self,
+        *,
+        eps: float = 0.001,
+        min_points: int = 5,
+        status: str | None = None,
+        district: str | None = None,
+        ward: str | None = None,
+    ) -> list[GisReportClusterItem]:
+        if self.settings.gis_backend == "postgis":
+            sql = """
+            WITH clustered_points AS (
+                SELECT
+                    id,
+                    geom,
+                    status,
+                    COALESCE(corrected_damage_type, detections_json->'detections'->0->>'damage_type', 'unknown') AS effective_damage_type,
+                    ST_ClusterDBSCAN(geom, eps := ?, minpoints := ?) OVER () AS cluster_id
+                FROM reports
+                WHERE (?::varchar IS NULL OR status = ?)
+                  AND (?::varchar IS NULL OR district = ?)
+                  AND (?::varchar IS NULL OR ward = ?)
+            )
+            SELECT
+                cluster_id,
+                COUNT(*) AS count,
+                ST_AsGeoJSON(ST_Centroid(ST_Collect(geom)))::json AS centroid_geojson,
+                json_agg(json_build_object(
+                    'id', id,
+                    'status', status,
+                    'latitude', ST_Y(geom),
+                    'longitude', ST_X(geom),
+                    'damage_type', effective_damage_type
+                )) FILTER (WHERE cluster_id IS NULL) AS noise_points
+            FROM clustered_points
+            GROUP BY cluster_id
+            ORDER BY count DESC;
+            """
+            params = (eps, min_points, status, status, district, district, ward, ward)
+            rows = self.connection.execute(sql, params).fetchall()
+
+            results: list[GisReportClusterItem] = []
+            for row in rows:
+                cid = row["cluster_id"]
+                centroid = row["centroid_geojson"]
+                noise = row["noise_points"]
+
+                if isinstance(centroid, str):
+                    try:
+                        centroid = json.loads(centroid)
+                    except Exception:
+                        pass
+                if isinstance(noise, str):
+                    try:
+                        noise = json.loads(noise)
+                    except Exception:
+                        pass
+
+                center_lat = None
+                center_lon = None
+                if centroid and isinstance(centroid, dict) and "coordinates" in centroid:
+                    coords = centroid["coordinates"]
+                    if len(coords) >= 2:
+                        center_lon = float(coords[0])
+                        center_lat = float(coords[1])
+
+                results.append(
+                    GisReportClusterItem(
+                        cluster_id=int(cid) if cid is not None else None,
+                        count=int(row["count"]),
+                        centroid_geojson=centroid,
+                        center_latitude=center_lat,
+                        center_longitude=center_lon,
+                        noise_points=noise,
+                    )
+                )
+            return results
+        else:
+            where_clauses = [
+                "reports.latitude IS NOT NULL",
+                "reports.longitude IS NOT NULL",
+            ]
+            params = []
+            if status:
+                where_clauses.append("reports.status = ?")
+                params.append(status)
+            if district:
+                where_clauses.append("reports.district = ?")
+                params.append(district)
+            if ward:
+                where_clauses.append("reports.ward = ?")
+                params.append(ward)
+
+            where_sql = f"WHERE {' AND '.join(where_clauses)}"
+            sql = f"""
+            SELECT reports.id,
+                   reports.latitude,
+                   reports.longitude,
+                   reports.status,
+                   {SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION} AS effective_damage_type
+            FROM reports
+            {where_sql}
+            """
+            rows = self.connection.execute(sql, tuple(params)).fetchall()
+            points = [dict(r) for r in rows]
+            if not points:
+                return []
+
+            visited: set[int] = set()
+            point_cluster: dict[int, int | None] = {}
+            cluster_idx = 0
+
+            def get_neighbors(p_idx: int) -> list[int]:
+                p = points[p_idx]
+                lat_p, lon_p = float(p["latitude"]), float(p["longitude"])
+                neighbors = []
+                for j, other in enumerate(points):
+                    lat_o, lon_o = float(other["latitude"]), float(other["longitude"])
+                    dist_deg = ((lat_p - lat_o) ** 2 + (lon_p - lon_o) ** 2) ** 0.5
+                    if dist_deg <= eps:
+                        neighbors.append(j)
+                return neighbors
+
+            for i in range(len(points)):
+                if i in visited:
+                    continue
+                visited.add(i)
+                neighbors = get_neighbors(i)
+                if len(neighbors) < min_points:
+                    point_cluster[i] = None
+                else:
+                    point_cluster[i] = cluster_idx
+                    queue = list(neighbors)
+                    for n_idx in queue:
+                        if n_idx not in visited:
+                            visited.add(n_idx)
+                            n_neighbors = get_neighbors(n_idx)
+                            if len(n_neighbors) >= min_points:
+                                for nn in n_neighbors:
+                                    if nn not in queue:
+                                        queue.append(nn)
+                        if point_cluster.get(n_idx) is None:
+                            point_cluster[n_idx] = cluster_idx
+                    cluster_idx += 1
+
+            clusters: dict[int, list[dict[str, Any]]] = defaultdict(list)
+            noise: list[dict[str, Any]] = []
+            for i, p in enumerate(points):
+                cid = point_cluster.get(i)
+                if cid is not None:
+                    clusters[cid].append(p)
+                else:
+                    noise.append(p)
+
+            results: list[GisReportClusterItem] = []
+            for cid, c_points in clusters.items():
+                mean_lat = sum(float(p["latitude"]) for p in c_points) / len(c_points)
+                mean_lon = sum(float(p["longitude"]) for p in c_points) / len(c_points)
+                results.append(
+                    GisReportClusterItem(
+                        cluster_id=cid,
+                        count=len(c_points),
+                        centroid_geojson={
+                            "type": "Point",
+                            "coordinates": [round(mean_lon, 6), round(mean_lat, 6)],
+                        },
+                        center_latitude=round(mean_lat, 6),
+                        center_longitude=round(mean_lon, 6),
+                        noise_points=None,
+                    )
+                )
+
+            if noise:
+                mean_lat = sum(float(p["latitude"]) for p in noise) / len(noise)
+                mean_lon = sum(float(p["longitude"]) for p in noise) / len(noise)
+                results.append(
+                    GisReportClusterItem(
+                        cluster_id=None,
+                        count=len(noise),
+                        centroid_geojson={
+                            "type": "Point",
+                            "coordinates": [round(mean_lon, 6), round(mean_lat, 6)],
+                        },
+                        center_latitude=round(mean_lat, 6),
+                        center_longitude=round(mean_lon, 6),
+                        noise_points=[
+                            {
+                                "id": p["id"],
+                                "status": p["status"],
+                                "latitude": float(p["latitude"]),
+                                "longitude": float(p["longitude"]),
+                                "damage_type": p["effective_damage_type"],
+                            }
+                            for p in noise
+                        ],
+                    )
+                )
+
+            results.sort(key=lambda item: item.count, reverse=True)
+            return results
+

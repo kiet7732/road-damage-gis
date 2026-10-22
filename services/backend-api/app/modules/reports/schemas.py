@@ -41,6 +41,11 @@ class ReporterReportResponse(BaseModel):
     location_recorded_at: str | None = None
     note: str | None
     corrected_damage_type: str | None = None
+    road_name: str | None = None
+    ward: str | None = None
+    district: str | None = None
+    province: str | None = None
+    formatted_address: str | None = None
     ai_status: str
     status: str
     ai_result: AiDetectionResult
@@ -53,11 +58,40 @@ class ReporterReportListResponse(BaseModel):
     total: int
 
 
+class EngineerAttachmentResponse(BaseModel):
+    id: str
+    file_url: str
+    original_filename: str | None = None
+    content_type: str | None = None
+    note: str | None = None
+    created_at: str
+
+
 class AdminReportResponse(ReporterReportResponse):
     image_path: str
     user_id: str | None = None
     admin_note: str | None = None
     is_ai_overridden: bool = False
+    assigned_engineer_id: str | None = None
+    assigned_engineer_name: str | None = None
+    claimed_by_engineer_id: str | None = None
+    claimed_by_engineer_name: str | None = None
+    field_status: str | None = None
+    field_checked_in_latitude: float | None = None
+    field_checked_in_longitude: float | None = None
+    field_checked_in_accuracy: float | None = None
+    field_checked_in_distance_meters: float | None = None
+    field_checked_in_at: str | None = None
+    field_checkin_quality: str | None = None
+    field_verified_damage_type: str | None = None
+    field_severity: str | None = None
+    field_priority: str | None = None
+    field_note: str | None = None
+    survey_started_at: str | None = None
+    survey_completed_at: str | None = None
+    claim_expires_at: str | None = None
+    claim_status: str | None = None
+    attachments: list[EngineerAttachmentResponse] = Field(default_factory=list)
 
 
 class AdminReportListResponse(BaseModel):
@@ -96,6 +130,42 @@ class AdminDashboardResponse(BaseModel):
     timeline: list[DashboardTimelineItem]
 
 
+class DistrictAdministrativeStat(BaseModel):
+    district: str
+    total: int
+    pending: int
+    processing: int
+    repaired: int
+    percentage: float = 0.0
+
+
+class WardAdministrativeStat(BaseModel):
+    ward: str
+    district: str
+    total: int
+    pending: int
+    processing: int
+    repaired: int
+    completion_rate: float = 0.0
+
+
+class TopRoadAdministrativeStat(BaseModel):
+    road_name: str
+    district: str | None = None
+    total: int
+    pending: int
+    processing: int
+    repaired: int
+
+
+class AdministrativeStatsResponse(BaseModel):
+    district_stats: list[DistrictAdministrativeStat]
+    ward_stats: list[WardAdministrativeStat]
+    top_roads: list[TopRoadAdministrativeStat]
+    total_reports: int
+    filtered_district: str | None = None
+
+
 class ReportMapPoint(BaseModel):
     id: str
     image_url: str
@@ -106,9 +176,28 @@ class ReportMapPoint(BaseModel):
     status: str
     damage_type: str | None = None
     damage_label: str | None = None
+    road_name: str | None = None
+    ward: str | None = None
+    district: str | None = None
+    province: str | None = None
+    formatted_address: str | None = None
     corrected_damage_type: str | None = None
     is_ai_overridden: bool = False
     confidence: float | None = None
+    created_at: str
+    updated_at: str
+
+
+class GeocodingCacheItem(BaseModel):
+    id: str
+    latitude: float
+    longitude: float
+    road_name: str | None = None
+    ward: str | None = None
+    district: str | None = None
+    province: str | None = None
+    formatted_address: str
+    hit_count: int = 1
     created_at: str
     updated_at: str
 
@@ -127,14 +216,6 @@ class UpdateReportDamageTypeRequest(BaseModel):
     corrected_damage_type: Literal["D00", "D10", "D20", "D40"]
     is_ai_overridden: bool = True
 
-
-class EngineerAttachmentResponse(BaseModel):
-    id: str
-    file_url: str
-    original_filename: str | None = None
-    content_type: str | None = None
-    note: str | None = None
-    created_at: str
 
 
 class EngineerReportResponse(ReporterReportResponse):
@@ -179,6 +260,8 @@ class EngineerCheckInRequest(BaseModel):
     longitude: float
     gps_accuracy: float = Field(gt=0)
     source: str | None = None
+    is_mocked: bool = False
+    distance_meters: float | None = None
 
 
 class EngineerSurveyRequest(BaseModel):
@@ -205,3 +288,41 @@ class EngineerTimelineItem(BaseModel):
 
 class EngineerTimelineResponse(BaseModel):
     items: list[EngineerTimelineItem]
+
+
+class NearbyReportItem(BaseModel):
+    id: str
+    damage_type: str | None = None
+    latitude: float
+    longitude: float
+    distance_meters: float
+    status: str
+    road_name: str | None = None
+    ward: str | None = None
+    district: str | None = None
+    formatted_address: str | None = None
+    created_at: str
+
+
+class NearbyReportsResponse(BaseModel):
+    items: list[NearbyReportItem]
+    total: int
+    center_latitude: float
+    center_longitude: float
+    radius_meters: float
+
+
+class DamageClusterItem(BaseModel):
+    cluster_id: int
+    center_latitude: float
+    center_longitude: float
+    count: int
+    dominant_status: str
+    report_ids: list[str]
+
+
+class DamageClustersResponse(BaseModel):
+    clusters: list[DamageClusterItem]
+    unclustered: list[NearbyReportItem]
+    total_reports: int
+    total_clusters: int

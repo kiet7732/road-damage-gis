@@ -18,6 +18,7 @@ import {
   getDamageTypeDisplayLabel,
   getReportHistoryErrorMessage,
 } from '../../services/reportService';
+import ReportCard from '../report/components/ReportCard';
 import type { BottomTabParamList, RootStackParamList } from '../../types/navigation';
 import type { Report } from '../../types/roadDamage';
 
@@ -89,41 +90,15 @@ export default function HistoryScreen({ navigation }: HistoryScreenProps) {
   const handleRefresh = () => {
     loadReports('refresh');
   };
-  const contentBottomPadding = Math.max(spacing.xxl, insets.bottom + 92);
+  const contentBottomPadding = Math.max(140, insets.bottom + 128);
   const topPadding = Platform.OS === 'android' ? Math.max(6, insets.top - 14) : 0;
 
   function renderReport({ item }: { item: Report }) {
-    const damageLabel = getDamageTypeDisplayLabel(item.type) ?? damageTypeTheme[item.type]?.label ?? item.type;
-
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Xem chi tiết phản ánh ${item.id}`}
-        style={({ pressed }) => [styles.reportCard, pressed && styles.reportCardPressed]}
-        onPress={() => navigation.navigate('ReportDetailScreen', { reportId: item.id })}
-      >
-        <View style={styles.reportHeader}>
-          <Text
-            selectable
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            style={styles.reportTitle}
-            testID={`history-report-title-${item.id}`}
-          >
-            {item.title}
-          </Text>
-          <StatusBadge status={item.status} />
-        </View>
-        <Text selectable style={styles.reportType} testID={`history-report-type-${item.id}`}>
-          Hư hỏng: {damageLabel}
-        </Text>
-        <Text selectable numberOfLines={2} ellipsizeMode="tail" style={styles.address}>
-          {item.address}
-        </Text>
-        <Text selectable style={styles.createdAt}>
-          {item.createdAt}
-        </Text>
-      </Pressable>
+      <ReportCard
+        report={item}
+        onPress={(reportId) => navigation.navigate('ReportDetailScreen', { reportId })}
+      />
     );
   }
 
@@ -198,45 +173,5 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.sm,
     gap: spacing.md,
-  },
-  reportCard: {
-    gap: spacing.sm,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  reportCardPressed: {
-    opacity: 0.78,
-  },
-  reportHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  reportTitle: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  address: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
-  },
-  reportType: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  createdAt: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: '800',
   },
 });

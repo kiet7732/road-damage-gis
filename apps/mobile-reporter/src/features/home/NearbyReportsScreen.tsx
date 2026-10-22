@@ -11,15 +11,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppButton from '../../components/AppButton';
+import AppIcon from '../../components/AppIcon';
 import EmptyState from '../../components/EmptyState';
 import StateMessage from '../../components/StateMessage';
-import { colors, spacing } from '../../constants/theme';
+import { colors, iconSize, spacing } from '../../constants/theme';
 import {
   DEFAULT_NEARBY_REPORT_RADIUS_METERS,
   fetchNearbyUnrepairedReports,
   getNearbyReportErrorMessage,
 } from '../../services/reportService';
-import { getOrLoadUserLocation } from '../../services/locationService';
+import { ensureLocationReady, getOrLoadUserLocation } from '../../services/locationService';
 import type { RootStackParamList } from '../../types/navigation';
 import type { Report } from '../../types/roadDamage';
 import RecentReportCard from './components/RecentReportCard';
@@ -58,11 +59,14 @@ export default function NearbyReportsScreen({
       setError('');
 
       try {
-        const userLocation = await getOrLoadUserLocation();
+        const userLocation = await getOrLoadUserLocation({
+          requestPermission: true,
+          promptAlert: true,
+        });
 
         if (!userLocation) {
           throw new Error(
-            'Chưa lấy được vị trí hiện tại để thống kê các điểm hư hỏng gần bạn.',
+            'Chưa lấy được vị trí hiện tại. Vui lòng cấp quyền vị trí và bật GPS trên thiết bị.',
           );
         }
 
@@ -135,8 +139,10 @@ export default function NearbyReportsScreen({
             tone="error"
           />
           <AppButton
-            label="Tải lại"
-            onPress={() => {
+            label="Bật vị trí & Thử lại"
+            icon={<AppIcon name="locate" size={iconSize.sm} color={colors.primary} containerSize={18} />}
+            onPress={async () => {
+              await ensureLocationReady({ requestPermission: true, promptAlert: true });
               void loadNearbyReports('refresh');
             }}
           />
