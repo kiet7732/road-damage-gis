@@ -124,7 +124,7 @@ export const getApiBaseURL = (): string => {
 
     // When running on public domain (e.g. admin.tuannguyenkiet0612.dpdns.org) or any HTTPS origin
     if (hostname.includes('tuannguyenkiet0612.dpdns.org')) {
-      return DEFAULT_PUBLIC_API_URL;
+      return `${origin}/api`;
     }
 
     if (protocol === 'https:' || (hostname !== 'localhost' && hostname !== '127.0.0.1')) {
