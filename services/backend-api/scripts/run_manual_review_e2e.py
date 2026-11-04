@@ -128,26 +128,31 @@ def fetch_reporter_detail(client: httpx.Client, token: str, report_id: str) -> d
     )
 
 
-def fetch_admin_reports(client: httpx.Client, *, ai_status: str = "") -> dict[str, Any]:
+def fetch_admin_reports(client: httpx.Client, *, ai_status: str = "", token: str = "") -> dict[str, Any]:
     query = "?limit=50&offset=0"
     if ai_status:
         query += f"&ai_status={ai_status}"
+    headers = get_auth_headers(token) if token else {}
     return request_json(
         client,
         "GET",
         f"{BACKEND_BASE_URL}/admin/reports{query}",
+        headers=headers,
     )
 
 
-def fetch_admin_report_detail(client: httpx.Client, report_id: str) -> dict[str, Any]:
+def fetch_admin_report_detail(client: httpx.Client, report_id: str, token: str = "") -> dict[str, Any]:
+    headers = get_auth_headers(token) if token else {}
     return request_json(
         client,
         "GET",
         f"{BACKEND_BASE_URL}/admin/reports/{report_id}",
+        headers=headers,
     )
 
 
-def update_status(client: httpx.Client, report_id: str, status_value: str, admin_note: str) -> dict[str, Any]:
+def update_status(client: httpx.Client, report_id: str, status_value: str, admin_note: str, token: str = "") -> dict[str, Any]:
+    headers = get_auth_headers(token) if token else {}
     return request_json(
         client,
         "PATCH",
@@ -156,6 +161,7 @@ def update_status(client: httpx.Client, report_id: str, status_value: str, admin
             "status": status_value,
             "admin_note": admin_note,
         },
+        headers=headers,
     )
 
 
@@ -249,9 +255,10 @@ def run_manual_review_flow() -> dict[str, Any]:
             "Reporter detail không phản ánh đúng trạng thái cần kiểm tra thêm.",
         )
 
-        login_admin_with_cookie(admin_client)
+        admin_login = login_admin_with_cookie(admin_client)
+        admin_token = admin_login.get("accessToken", "")
 
-        admin_manual_review_list = fetch_admin_reports(admin_client, ai_status="manual_review_required")
+        admin_manual_review_list = fetch_admin_reports(admin_client, ai_status="manual_review_required", token=admin_token)
         admin_manual_item = next((item for item in admin_manual_review_list["items"] if item["id"] == report_id), None)
         assert_true(
             admin_manual_item is not None,
@@ -262,7 +269,7 @@ def run_manual_review_flow() -> dict[str, Any]:
             "Web admin list không phân biệt đúng report cần kiểm tra thủ công.",
         )
 
-        admin_detail = fetch_admin_report_detail(admin_client, report_id)
+        admin_detail = fetch_admin_report_detail(admin_client, report_id, token=admin_token)
         assert_true(admin_detail["id"] == report_id, "Web admin không mở được chi tiết report manual review.")
         assert_true(
             admin_detail["ai_status"] == "manual_review_required",
@@ -270,11 +277,11 @@ def run_manual_review_flow() -> dict[str, Any]:
         )
 
         original_status = admin_detail["status"]
-        updated = update_status(admin_client, report_id, UPDATED_STATUS, UPDATED_ADMIN_NOTE)
+        updated = update_status(admin_client, report_id, UPDATED_STATUS, UPDATED_ADMIN_NOTE, token=admin_token)
         assert_true(updated["status"] == UPDATED_STATUS, "Quản lý không cập nhật được trạng thái report manual review.")
         assert_true(updated.get("admin_note") == UPDATED_ADMIN_NOTE, "Quản lý không lưu được ghi chú xử lý manual review.")
 
-        admin_detail_after = fetch_admin_report_detail(admin_client, report_id)
+        admin_detail_after = fetch_admin_report_detail(admin_client, report_id, token=admin_token)
         assert_true(
             admin_detail_after["status"] == UPDATED_STATUS,
             "Web admin detail chưa phản ánh đúng trạng thái mới của report manual review.",
@@ -302,7 +309,7 @@ def run_manual_review_flow() -> dict[str, Any]:
 
         # rollback để không làm bẩn seed/runtime sau khi test
         rollback_note = f"{SMOKE_ADMIN_NOTE_PREFIX}E2E-05 rollback {datetime.now().isoformat(timespec='seconds')}"
-        rolled_back = update_status(admin_client, report_id, original_status, rollback_note)
+        rolled_back = update_status(admin_client, report_id, original_status, rollback_note, token=admin_token)
         assert_true(
             rolled_back["status"] == original_status,
             "Không rollback được trạng thái gốc của report manual review sau test.",

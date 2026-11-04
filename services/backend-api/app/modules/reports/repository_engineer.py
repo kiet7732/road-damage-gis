@@ -39,14 +39,22 @@ class ReportEngineerMixin:
         offset: int = 0,
     ) -> tuple[list[EngineerReportResponse], int]:
         self.expire_stale_claims(updated_at=datetime.now(timezone.utc).isoformat())
-        where_clauses = []
+        where_clauses = [
+            """(
+                COALESCE(reports.admin_approved_for_survey, 0) = 1
+                OR (
+                    COALESCE(reports.ai_status, '') != 'no_damage_detected'
+                    AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                )
+            )"""
+        ]
         params: list[object] = []
         normalized_scope = scope.strip().lower()
 
         if normalized_scope == "available":
             where_clauses.append(
                 """
-                COALESCE(reports.field_status, '') IN ('', ?) AND
+                COALESCE(reports.field_status, '') IN ('', 'available', ?) AND
                 (
                     reports.claimed_by_engineer_id IS NULL OR
                     reports.claim_status IS NULL OR
@@ -108,6 +116,13 @@ class ReportEngineerMixin:
             f"""
             {self._engineer_report_select_sql()}
             WHERE reports.id = ?
+              AND (
+                  COALESCE(reports.admin_approved_for_survey, 0) = 1
+                  OR (
+                      COALESCE(reports.ai_status, '') != 'no_damage_detected'
+                      AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                  )
+              )
             LIMIT 1
             """,
             (report_id,),
@@ -198,6 +213,13 @@ class ReportEngineerMixin:
               AND (
                   assigned_engineer_id IS NULL OR
                   assigned_engineer_id = ?
+              )
+              AND (
+                  COALESCE(admin_approved_for_survey, 0) = 1
+                  OR (
+                      COALESCE(ai_status, '') != 'no_damage_detected'
+                      AND COALESCE(json_extract(detections_json, '$.detections_count'), 1) > 0
+                  )
               )
             """,
             (

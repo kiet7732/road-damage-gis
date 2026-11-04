@@ -422,3 +422,35 @@ body {
     border-radius: 16px !important;
   }
 }
+
+/* =========================================================
+   Unified Single-Row Map Controls for PC / Laptop Screens
+   ========================================================= */
+.road-map-top-controls {
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+}
+
+.road-map-admin-filter-slot {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+.road-map-toolbar-slot {
+  flex-shrink: 0 !important;
+}
+
+/* On standard laptops and screens below 1400px: hide "ĐỊA GIỚI:" text to preserve width */
+@media (max-width: 1400px) {
+  .road-admin-filter-bar-title {
+    display: none !important;
+  }
+}
+
+/* On compact laptop screens below 1200px: collapse text labels in toolbar buttons to icons */
+@media (max-width: 1200px) {
+  .road-toolbar-btn-text {
+    display: none !important;
+  }
+}
+

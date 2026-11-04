@@ -57,24 +57,26 @@ export async function fetchAdminUsers({
 }
 
 export async function createAdminUser(data) {
+  const isReporter = data.role === 'reporter';
   return api.post('/admin/users', {
     fullName: data.fullName.trim(),
     email: data.email.trim().toLowerCase(),
     password: data.password,
     phone: data.phone?.trim() || null,
     role: data.role || 'field_engineer',
-    managedDistrict: data.managedDistrict?.trim() || null,
-    managedWard: data.managedWard?.trim() || null,
+    managedDistrict: isReporter ? null : (data.managedDistrict?.trim() || null),
+    managedWard: isReporter ? null : (data.managedWard?.trim() || null),
   });
 }
 
 export async function updateAdminUser(userId, data) {
+  const isReporter = data.role === 'reporter';
   return api.put(`/admin/users/${userId}`, {
     fullName: data.fullName?.trim(),
     phone: data.phone?.trim() || null,
     role: data.role,
-    managedDistrict: data.managedDistrict?.trim() || null,
-    managedWard: data.managedWard?.trim() || null,
+    managedDistrict: isReporter ? null : (data.managedDistrict?.trim() || null),
+    managedWard: isReporter ? null : (data.managedWard?.trim() || null),
   });
 }
 

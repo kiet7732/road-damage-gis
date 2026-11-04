@@ -7,6 +7,11 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Road Damage GIS - Web quản lý</title>
+    <script>
+      window.$RefreshReg$ = window.$RefreshReg$ || function () {};
+      window.$RefreshSig$ = window.$RefreshSig$ || function () { return function (type) { return type; }; };
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
     <style>
       html,
       body,
@@ -28,7 +33,26 @@
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-loading-screen" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0F172A; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #F8FAFC;">
+        <div style="width: 54px; height: 54px; border-radius: 16px; background: #0F766E; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #FFFFFF; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(15, 118, 110, 0.4); letter-spacing: -1px;">
+          RD
+        </div>
+        <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 6px; color: #F8FAFC;">
+          Road Damage GIS
+        </div>
+        <div style="font-size: 13.5px; color: #94A3B8; margin-bottom: 24px;">
+          Hệ thống Quản lý & Khảo sát Hư hỏng Mặt đường Đô thị
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; color: #38BDF8; font-size: 13.5px; font-weight: 600;">
+          <div style="width: 20px; height: 20px; border: 2.5px solid rgba(56, 189, 248, 0.2); border-top-color: #38BDF8; border-radius: 50%; animation: rdSpin 0.75s linear infinite;"></div>
+          <span>Đang tải hệ thống quản trị...</span>
+        </div>
+        <style>
+          @keyframes rdSpin { to { transform: rotate(360deg); } }
+        </style>
+      </div>
+    </div>
     <script type="module" src="./main.tsx"></script>
   </body>
   </html>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging
 import re
@@ -11,6 +12,15 @@ from app.config import Settings
 from app.modules.reports.repository import ReportRepository
 
 logger = logging.getLogger(__name__)
+
+_OSM_FALLBACK_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_osm_semaphore() -> asyncio.Semaphore:
+    global _OSM_FALLBACK_SEMAPHORE
+    if _OSM_FALLBACK_SEMAPHORE is None:
+        _OSM_FALLBACK_SEMAPHORE = asyncio.Semaphore(1)
+    return _OSM_FALLBACK_SEMAPHORE
 
 
 @dataclass(slots=True)
@@ -474,19 +484,22 @@ class ReverseGeocodingService:
         if data is not None:
             return data, "nominatim_local"
 
-        # 2. Try Public OSM Fallback
+        # 2. Try Public OSM Fallback (Throttled by semaphore to respect OSM rate limits)
         fallback_url = f"{self.settings.normalized_nominatim_fallback_url}/reverse"
         if fallback_url != local_url:
             logger.info("Attempting public Nominatim fallback for (%.6f, %.6f)", latitude, longitude)
-            data = await self._request_nominatim(
-                url=fallback_url,
-                latitude=latitude,
-                longitude=longitude,
-                timeout_seconds=timeout_seconds,
-                client=client,
-            )
-            if data is not None:
-                return data, "nominatim_fallback"
+            async with _get_osm_semaphore():
+                # Respect OSM usage policy (max 1 req/sec)
+                await asyncio.sleep(1.1)
+                data = await self._request_nominatim(
+                    url=fallback_url,
+                    latitude=latitude,
+                    longitude=longitude,
+                    timeout_seconds=timeout_seconds,
+                    client=client,
+                )
+                if data is not None:
+                    return data, "nominatim_fallback"
 
         return None, "fallback"
 

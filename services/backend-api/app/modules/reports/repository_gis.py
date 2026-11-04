@@ -98,6 +98,16 @@ class ReportGisMixin:
             elif exclude_repaired:
                 conditions.append("reports.status != 'repaired'")
 
+            conditions.append(
+                """(
+                    COALESCE(reports.admin_approved_for_survey, 0) = 1
+                    OR (
+                        COALESCE(reports.ai_status, '') != 'no_damage_detected'
+                        AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                    )
+                )"""
+            )
+
             params.append(limit)
             where_sql = " AND ".join(conditions)
 
@@ -154,6 +164,16 @@ class ReportGisMixin:
                 params.append(status)
             elif exclude_repaired:
                 conditions.append("reports.status != 'repaired'")
+
+            conditions.append(
+                """(
+                    COALESCE(reports.admin_approved_for_survey, 0) = 1
+                    OR (
+                        COALESCE(reports.ai_status, '') != 'no_damage_detected'
+                        AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                    )
+                )"""
+            )
 
             where_sql = " AND ".join(conditions)
             sql = f"""

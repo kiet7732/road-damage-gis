@@ -1,4 +1,4 @@
-import { FiX, FiRefreshCw } from 'react-icons/fi';
+import { FiX, FiRefreshCw, FiXCircle } from 'react-icons/fi';
 import { DAMAGE_TYPES, STATUS_COLORS, UI_COLORS } from '../constants/statusColors';
 import StatusBadge from './StatusBadge';
 import WebButton from './WebButton';
@@ -77,7 +77,7 @@ export default function MapFilterPanel({
       <div style={styles.summaryBox}>
         <div style={styles.summaryHeader}>
           <div style={styles.summaryValue}>{summary?.total ?? 0}</div>
-          <div style={styles.summaryHeadline}>vị trí trong vùng đang xem</div>
+          <div style={styles.summaryHeadline}>vị trí hư hỏng phù hợp</div>
         </div>
         <div style={summaryGridStyle}>
           <div style={styles.summaryStatCard}>
@@ -189,7 +189,8 @@ export default function MapFilterPanel({
             Hiển thị toàn bộ
           </WebButton>
           <WebButton variant="secondary" onClick={onReset} style={styles.actionButton}>
-            Xóa bộ lọc
+            <FiXCircle size={15} style={{ marginRight: 6 }} />
+            Hủy lọc
           </WebButton>
         </div>
       </div>

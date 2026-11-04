@@ -16,6 +16,8 @@ export default function ReportStatusActionCard({
   setDamageTypeDraft,
   isUpdatingDamageType,
   onUpdateDamageType,
+  isApprovingForSurvey,
+  onApproveForSurvey,
 }) {
   if (!report) return null;
 
@@ -92,6 +94,35 @@ export default function ReportStatusActionCard({
           </WebButton>
         </div>
       </Panel>
+
+      <Panel title="Khảo sát thực địa (Kỹ sư giám sát)">
+        <div style={styles.formStack}>
+          {report.admin_approved_for_survey ? (
+            <div style={styles.approvedBanner}>
+              <div style={styles.bannerTitle}>✓ Đã phê duyệt cho kiểm tra</div>
+              <div style={styles.bannerDesc}>
+                Báo cáo này đã được Admin cho phép kiểm tra. Kỹ sư giám sát có thể tiếp nhận và khảo sát ngoài thực địa.
+              </div>
+            </div>
+          ) : (
+            <div style={styles.unapprovedBanner}>
+              <div style={styles.bannerTitle}>⚠️ Đang ẩn với Kỹ sư giám sát</div>
+              <div style={styles.bannerDesc}>
+                {report.ai_status === 'no_damage_detected' || (report.ai_result?.detections_count === 0)
+                  ? 'Do AI không nhận diện được điểm hư hỏng trong ảnh, báo cáo này chỉ hiển thị với Quản lý.'
+                  : 'Báo cáo chưa được kích hoạt khảo sát cho kỹ sư.'}
+              </div>
+              <WebButton
+                onClick={onApproveForSurvey}
+                disabled={isApprovingForSurvey}
+                style={styles.approveSurveyBtn}
+              >
+                {isApprovingForSurvey ? 'Đang duyệt...' : 'Xác nhận cho kiểm tra'}
+              </WebButton>
+            </div>
+          )}
+        </div>
+      </Panel>
     </>
   );
 }
@@ -158,5 +189,36 @@ const styles = {
     color: UI_COLORS.textMuted,
     fontSize: 13,
     lineHeight: 1.5,
+  },
+  approvedBanner: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    border: '1px solid #BBF7D0',
+    display: 'grid',
+    gap: 4,
+  },
+  unapprovedBanner: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#FEF3C7',
+    border: '1px solid #FDE68A',
+    display: 'grid',
+    gap: 10,
+  },
+  bannerTitle: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: '#1E293B',
+  },
+  bannerDesc: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 1.5,
+  },
+  approveSurveyBtn: {
+    backgroundColor: '#059669',
+    color: '#FFF',
+    border: 'none',
   },
 };

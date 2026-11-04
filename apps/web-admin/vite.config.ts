@@ -24,4 +24,17 @@ export default defineConfig({
       '@shared': path.resolve(__dirname, '../../packages'),
     },
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react-router-dom',
+      'react-icons/fi',
+      'leaflet',
+      'react-leaflet',
+      'recharts',
+      'axios',
+    ],
+  },
 });

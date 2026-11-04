@@ -90,3 +90,4 @@ class GisReportClusterItem(BaseModel):
     center_latitude: float | None = None
     center_longitude: float | None = None
     noise_points: list[dict[str, Any]] | None = None
+    items: list[dict[str, Any]] | None = None

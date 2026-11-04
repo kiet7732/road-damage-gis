@@ -1,4 +1,9 @@
 export const ALL_DISTRICTS = [
+  'Thủ Dầu Một',
+  'Thuận An',
+  'Dĩ An',
+  'Bến Cát',
+  'Tân Uyên',
   'Quận 1',
   'Quận 3',
   'Quận 4',

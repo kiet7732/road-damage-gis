@@ -16,6 +16,7 @@ from app.database import get_connection
 from app.modules.auth.schemas import AuthUser
 from app.modules.gis.geocoding_service import GeocodingAddress, ReverseGeocodingService
 from app.modules.reports.ai_client import AiServiceClient, AiServiceError
+from app.modules.reports.exif_service import extract_gis_exif, inject_gis_exif
 from app.modules.reports.repository import ReportRepository
 from app.modules.reports.schemas import (
     AiDetectionResult,
@@ -59,6 +60,7 @@ async def geocode_report_background(
 
 REPORT_STATUS_PENDING_VERIFICATION = "pending_verification"
 AI_STATUS_SUCCESS = "success"
+AI_STATUS_NO_DAMAGE_DETECTED = "no_damage_detected"
 AI_STATUS_MANUAL_REVIEW_REQUIRED = "manual_review_required"
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_IMAGE_CONTENT_TYPES = {
@@ -72,7 +74,12 @@ logger = logging.getLogger(__name__)
 PREVIEW_TOKEN_TTL_SECONDS = 10 * 60
 LOCATION_SOURCE_CAMERA_GPS = "camera_gps"
 LOCATION_SOURCE_MAP_SELECTED = "map_selected"
-ALLOWED_LOCATION_SOURCES = {LOCATION_SOURCE_CAMERA_GPS, LOCATION_SOURCE_MAP_SELECTED}
+LOCATION_SOURCE_CAMERA_EXIF = "camera_exif"
+ALLOWED_LOCATION_SOURCES = {
+    LOCATION_SOURCE_CAMERA_GPS,
+    LOCATION_SOURCE_MAP_SELECTED,
+    LOCATION_SOURCE_CAMERA_EXIF,
+}
 
 
 @dataclass(slots=True)
@@ -106,17 +113,56 @@ class ReportService:
         gps_accuracy: float | None,
         location_source: str | None,
         location_recorded_at: str | None,
+        altitude: float | None = None,
+        heading: float | None = None,
         image_source: str | None = "camera_live",
         note: str | None,
         preview_token: str | None,
         background_tasks: BackgroundTasks | None = None,
     ) -> ReporterReportResponse:
         started_at = perf_counter()
-        self._validate_coordinates(latitude, longitude)
-        self._validate_accuracy(gps_accuracy)
-        normalized_location_source = self._normalize_location_source(location_source)
-        normalized_location_recorded_at = self._normalize_location_recorded_at(location_recorded_at)
         image_bytes = await self._read_image_bytes(image)
+
+        # -------------------------------------------------------------
+        # XÁC THỰC VÀ NHẬN DẠNG VỊ TRÍ THEO EXIF METADATA
+        # Ưu tiên lấy tọa độ và thời gian bắt GPS tại thời điểm chụp ảnh
+        # -------------------------------------------------------------
+        exif_loc = extract_gis_exif(image_bytes)
+        if exif_loc is not None:
+            effective_latitude = exif_loc.latitude
+            effective_longitude = exif_loc.longitude
+            effective_gps_accuracy = (
+                exif_loc.accuracy
+                if exif_loc.accuracy is not None and exif_loc.accuracy > 0
+                else gps_accuracy
+            )
+            effective_location_source = LOCATION_SOURCE_CAMERA_EXIF
+            effective_location_recorded_at = (
+                exif_loc.recorded_at or self._normalize_location_recorded_at(location_recorded_at)
+            )
+            effective_altitude = exif_loc.altitude if exif_loc.altitude is not None else altitude
+            effective_heading = exif_loc.heading if exif_loc.heading is not None else heading
+            logger.info(
+                "Xác định vị trí báo cáo từ EXIF Metadata lúc chụp: (%f, %f) ±%sm tại %s (heading=%s, alt=%s)",
+                effective_latitude,
+                effective_longitude,
+                effective_gps_accuracy,
+                effective_location_recorded_at,
+                effective_heading,
+                effective_altitude,
+            )
+        else:
+            effective_latitude = latitude
+            effective_longitude = longitude
+            effective_gps_accuracy = gps_accuracy
+            effective_location_source = self._normalize_location_source(location_source)
+            effective_location_recorded_at = self._normalize_location_recorded_at(location_recorded_at)
+            effective_altitude = altitude
+            effective_heading = heading
+
+        self._validate_coordinates(effective_latitude, effective_longitude)
+        self._validate_accuracy(effective_gps_accuracy)
+
         optimized_image_bytes = self._prepare_image_for_ai(image_bytes)
         optimized_image_hash = self._build_image_hash(optimized_image_bytes)
         report_id = str(uuid4())
@@ -124,10 +170,18 @@ class ReportService:
             report_id=report_id,
             image_bytes=image_bytes,
             original_filename=image.filename or "road-damage.jpg",
+            latitude=effective_latitude,
+            longitude=effective_longitude,
+            gps_accuracy=effective_gps_accuracy,
+            altitude=effective_altitude,
+            heading=effective_heading,
+            location_recorded_at=effective_location_recorded_at,
+            note=note,
         )
         relative_image_path = self._to_upload_relative_path(saved_image_path)
 
         ai_status = AI_STATUS_SUCCESS
+        admin_approved_for_survey = 1
 
         try:
             ai_result = self._consume_cached_preview(
@@ -140,8 +194,13 @@ class ReportService:
                     filename=image.filename or f"{report_id}.jpg",
                     content_type=self._resolve_content_type(image.content_type),
                 )
+            # Nếu AI không phát hiện được điểm hư hỏng (0 điểm), đánh dấu và tạm ẩn với kỹ sư
+            if ai_result.detections_count == 0:
+                ai_status = AI_STATUS_NO_DAMAGE_DETECTED
+                admin_approved_for_survey = 0
         except AiServiceError as exc:
             ai_status = AI_STATUS_MANUAL_REVIEW_REQUIRED
+            admin_approved_for_survey = 0
             logger.warning("AI fallback for report %s: %s", report_id, exc)
             ai_result = AiDetectionResult(
                 success=False,
@@ -158,15 +217,16 @@ class ReportService:
             report_id=report_id,
             user_id=current_user.id,
             image_path=relative_image_path,
-            latitude=latitude,
-            longitude=longitude,
-            gps_accuracy=gps_accuracy,
-            location_source=normalized_location_source,
-            location_recorded_at=normalized_location_recorded_at,
+            latitude=effective_latitude,
+            longitude=effective_longitude,
+            gps_accuracy=effective_gps_accuracy,
+            location_source=effective_location_source,
+            location_recorded_at=effective_location_recorded_at,
             note=self._sanitize_note(note),
             ai_status=ai_status,
             status=REPORT_STATUS_PENDING_VERIFICATION,
             ai_result=ai_result,
+            admin_approved_for_survey=admin_approved_for_survey,
             created_at=now,
             updated_at=now,
         )
@@ -175,8 +235,8 @@ class ReportService:
             background_tasks.add_task(
                 geocode_report_background,
                 report_id=report_id,
-                latitude=latitude,
-                longitude=longitude,
+                latitude=effective_latitude,
+                longitude=effective_longitude,
                 settings=self.settings,
             )
 
@@ -330,6 +390,13 @@ class ReportService:
         report_id: str,
         image_bytes: bytes,
         original_filename: str,
+        latitude: float,
+        longitude: float,
+        gps_accuracy: float | None = None,
+        altitude: float | None = None,
+        heading: float | None = None,
+        location_recorded_at: str | None = None,
+        note: str | None = None,
     ) -> Path:
         upload_dir = self.settings.resolved_upload_dir
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -338,8 +405,24 @@ class ReportService:
         if suffix not in ALLOWED_IMAGE_SUFFIXES:
             suffix = ".jpg"
 
+        # Đảm bảo file ảnh lưu trên đĩa luôn mang nhóm thẻ EXIF GPS IFD chuẩn GIS
+        gis_tagged_bytes = inject_gis_exif(
+            image_bytes=image_bytes,
+            latitude=latitude,
+            longitude=longitude,
+            gps_accuracy=gps_accuracy,
+            altitude=altitude,
+            heading=heading,
+            recorded_at=location_recorded_at,
+            custom_metadata={
+                "report_id": report_id,
+                "note": note or "",
+                "system": "RoadDamageGIS",
+            },
+        )
+
         image_path = upload_dir / f"{report_id}{suffix}"
-        image_path.write_bytes(image_bytes)
+        image_path.write_bytes(gis_tagged_bytes)
 
         return image_path
 

@@ -56,37 +56,70 @@ export default function UserEditModal({
             />
           </div>
 
-          <div style={styles.formRow}>
-            <div style={styles.formCol}>
+          {editForm.role === 'reporter' ? (
+            <div style={styles.formGroup}>
               <label style={styles.label}>Vai trò</label>
               <select
+                id="edit-user-role"
                 value={editForm.role}
-                onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                onChange={(e) => {
+                  const newRole = e.target.value;
+                  setEditForm({
+                    ...editForm,
+                    role: newRole,
+                    ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
+                  });
+                }}
                 style={styles.input}
               >
                 <option value="field_engineer">Kỹ sư hiện trường</option>
+                <option value="reporter">Người phản ánh</option>
                 <option value="district_officer">Cán bộ địa bàn</option>
                 <option value="admin">Quản trị viên</option>
-                <option value="reporter">Người phản ánh</option>
               </select>
             </div>
+          ) : (
+            <div style={styles.formRow}>
+              <div style={styles.formCol}>
+                <label style={styles.label}>Vai trò</label>
+                <select
+                  id="edit-user-role"
+                  value={editForm.role}
+                  onChange={(e) => {
+                    const newRole = e.target.value;
+                    setEditForm({
+                      ...editForm,
+                      role: newRole,
+                      ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
+                    });
+                  }}
+                  style={styles.input}
+                >
+                  <option value="field_engineer">Kỹ sư hiện trường</option>
+                  <option value="reporter">Người phản ánh</option>
+                  <option value="district_officer">Cán bộ địa bàn</option>
+                  <option value="admin">Quản trị viên</option>
+                </select>
+              </div>
 
-            <div style={styles.formCol}>
-              <label style={styles.label}>Địa bàn quản lý</label>
-              <select
-                value={editForm.managedDistrict}
-                onChange={(e) => setEditForm({ ...editForm, managedDistrict: e.target.value })}
-                style={styles.input}
-              >
-                <option value="">Toàn thành phố / Không giới hạn</option>
-                {DISTRICT_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <div style={styles.formCol}>
+                <label style={styles.label}>Địa bàn quản lý</label>
+                <select
+                  id="edit-user-district"
+                  value={editForm.managedDistrict}
+                  onChange={(e) => setEditForm({ ...editForm, managedDistrict: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="">Toàn thành phố / Không giới hạn</option>
+                  {DISTRICT_OPTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           <div style={styles.formGroup}>
             <label style={styles.label}>Số điện thoại</label>

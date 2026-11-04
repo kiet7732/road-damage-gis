@@ -50,7 +50,7 @@ export default function UserTable({
           <FiUsers size={40} color={UI_COLORS.textMuted} />
           <div style={styles.emptyTitle}>Không tìm thấy tài khoản nào</div>
           <div style={styles.emptySubtitle}>
-            Thử điều chỉnh bộ lọc hoặc tạo tài khoản Kỹ sư hiện trường mới.
+            Thử điều chỉnh bộ lọc hoặc tạo tài khoản mới.
           </div>
         </div>
       ) : (
@@ -116,7 +116,9 @@ export default function UserTable({
 
                     {/* District */}
                     <td style={styles.td}>
-                      {u.managedDistrict ? (
+                      {u.role === 'reporter' ? (
+                        <span style={styles.textMuted}>—</span>
+                      ) : u.managedDistrict ? (
                         <span style={styles.districtBadge}>{u.managedDistrict}</span>
                       ) : (
                         <span style={styles.textMuted}>Toàn thành phố</span>

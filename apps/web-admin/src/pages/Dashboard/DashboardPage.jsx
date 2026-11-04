@@ -12,6 +12,7 @@ import AdministrativeDistributionChart from '../../components/dashboard/Administ
 import TopDamagedRoadsChart from '../../components/dashboard/TopDamagedRoadsChart';
 import WardProgressTable from '../../components/dashboard/WardProgressTable';
 import { UI_COLORS } from '../../constants/statusColors';
+import { ALL_DISTRICTS } from '../../constants/statisticsConstants';
 import useAsyncData from '../../hooks/useAsyncData';
 import { useAuth } from '../../hooks/useAuth';
 import {
@@ -19,26 +20,6 @@ import {
   fetchAdministrativeStats,
   getDashboardErrorMessage,
 } from '../../services/dashboardService';
-
-const ALL_DISTRICTS = [
-  'Quận 1',
-  'Quận 3',
-  'Quận 4',
-  'Quận 5',
-  'Quận 6',
-  'Quận 7',
-  'Quận 8',
-  'Quận 10',
-  'Quận 11',
-  'Quận 12',
-  'Bình Thạnh',
-  'Gò Vấp',
-  'Phú Nhuận',
-  'Tân Bình',
-  'Tân Phú',
-  'Bình Tân',
-  'TP. Thủ Đức',
-];
 
 export default function DashboardPage() {
   const { managedDistrict } = useAuth();

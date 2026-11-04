@@ -7,9 +7,9 @@ const SIDEBAR_ICON_SIZE = 24;
 const menuItems = [
   { label: 'Dashboard', path: '/', icon: FiGrid },
   { label: 'Bản đồ GIS', path: '/map', icon: FiMap },
-  { label: 'Danh sách báo cáo', path: '/reports', icon: FiList },
-  { label: 'Ảnh cần kiểm tra thêm', path: '/reports/manual-review', icon: FiAlertCircle },
-  { label: 'Thống kê', path: '/statistics', icon: FiBarChart2 },
+  { label: 'Tất cả báo cáo', path: '/reports', icon: FiList },
+  { label: 'AI phát hiện hư hỏng', path: '/reports/manual-review', icon: FiAlertCircle },
+  { label: 'AI không phát hiện hư hỏng', path: '/statistics', icon: FiBarChart2 },
   { label: 'Quản lý tài khoản', path: '/users', icon: FiUsers },
   { label: 'Tài khoản', path: '/account', icon: FiUser },
 ];

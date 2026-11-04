@@ -161,8 +161,12 @@ def create_user(
         user_id = str(uuid4())
         phone = payload.phone.strip() if payload.phone else None
         role = payload.role.strip().lower()
-        district = payload.managedDistrict.strip() if payload.managedDistrict else None
-        ward = payload.managedWard.strip() if payload.managedWard else None
+        if role == "reporter":
+            district = None
+            ward = None
+        else:
+            district = payload.managedDistrict.strip() if payload.managedDistrict else None
+            ward = payload.managedWard.strip() if payload.managedWard else None
 
         connection.execute(
             """
@@ -233,8 +237,15 @@ def update_user(
         full_name = payload.fullName if payload.fullName is not None else row["full_name"]
         phone = payload.phone if payload.phone is not None else row["phone"]
         role = payload.role if payload.role is not None else row["role"]
-        district = payload.managedDistrict if payload.managedDistrict is not None else row["managed_district"]
-        ward = payload.managedWard if payload.managedWard is not None else row["managed_ward"]
+        if role:
+            role = role.strip().lower()
+
+        if role == "reporter":
+            district = None
+            ward = None
+        else:
+            district = payload.managedDistrict if payload.managedDistrict is not None else row["managed_district"]
+            ward = payload.managedWard if payload.managedWard is not None else row["managed_ward"]
 
         connection.execute(
             """

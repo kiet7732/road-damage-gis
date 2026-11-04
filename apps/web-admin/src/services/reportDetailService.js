@@ -43,3 +43,8 @@ export async function updateAdminReportDamageType(reportId, payload) {
 export async function fetchEngineerTimeline(reportId) {
   return api.get(`/admin/reports/${reportId}/engineer-timeline`, { suppressGlobalError: true });
 }
+
+export async function approveReportForSurvey(reportId, note = '') {
+  const payload = note?.trim() ? { admin_note: note.trim() } : {};
+  return api.post(`/admin/reports/${reportId}/approve-for-survey`, payload);
+}

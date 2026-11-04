@@ -17,6 +17,7 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.schemas import AuthUser
 from app.modules.auth.repository import AuthRepository
 from app.modules.reports.ai_client import AiServiceClient
+from app.modules.reports.exif_service import extract_gis_exif, inject_gis_exif
 from app.modules.reports.repository import CHECKIN_NEAR_THRESHOLD_METERS, ReportRepository
 from app.modules.reports.schemas import (
     AdminAssignEngineerRequest,
@@ -26,6 +27,7 @@ from app.modules.reports.schemas import (
     AdministrativeStatsResponse,
     AiDetectionResult,
     AiPreviewDetectionResult,
+    ApproveForSurveyRequest,
     DamageClustersResponse,
     EngineerCheckInRequest,
     EngineerReportListResponse,
@@ -70,6 +72,8 @@ async def create_report(
     gps_accuracy: float = Form(...),
     location_source: str | None = Form(default="camera_gps"),
     location_recorded_at: str | None = Form(default=None),
+    altitude: float | None = Form(default=None),
+    heading: float | None = Form(default=None),
     image_source: str | None = Form(default="camera_live"),
     note: str | None = Form(default=None),
     preview_token: str | None = Form(default=None),
@@ -85,6 +89,8 @@ async def create_report(
             gps_accuracy=gps_accuracy,
             location_source=location_source,
             location_recorded_at=location_recorded_at,
+            altitude=altitude,
+            heading=heading,
             image_source=image_source,
             note=note,
             preview_token=preview_token,
@@ -191,10 +197,13 @@ def get_report(
 def list_admin_reports(
     limit: int = 10,
     offset: int = 0,
+    status: str | None = None,
     status_filter: str | None = None,
     damage_type: str | None = None,
     search: str | None = None,
     ai_status: str | None = None,
+    has_damage_detected: bool | None = None,
+    province: str | None = None,
     district: str | None = None,
     ward: str | None = None,
     road_name: str | None = None,
@@ -202,15 +211,18 @@ def list_admin_reports(
     to_date: str | None = None,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminReportListResponse:
+    effective_status = status or status_filter
     effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
         items, total = ReportRepository(connection).list_reports(
             limit=limit,
             offset=offset,
-            status=status_filter,
+            status=effective_status,
             damage_type=damage_type,
             search=search,
             ai_status=ai_status,
+            has_damage_detected=has_damage_detected,
+            province=province,
             district=effective_district,
             ward=ward,
             road_name=road_name,
@@ -338,6 +350,40 @@ def update_admin_report_damage_type(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Không thể cập nhật loại hư hỏng.",
+        )
+
+    return updated_report
+
+
+@router.post("/admin/reports/{report_id}/approve-for-survey", response_model=AdminReportResponse)
+def approve_report_for_survey(
+    report_id: str,
+    payload: ApproveForSurveyRequest | None = None,
+    current_user: AuthUser = Depends(get_admin_user),
+) -> AdminReportResponse:
+    with get_connection() as connection:
+        repository = ReportRepository(connection)
+        existing_report = repository.get_report(report_id, include_admin_fields=True)
+
+        if existing_report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy phản ánh.",
+            )
+
+        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
+
+        updated_report = repository.approve_for_survey(
+            report_id,
+            actor_id=current_user.id,
+            admin_note=payload.admin_note if payload else None,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    if updated_report is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể xác nhận cho kiểm tra báo cáo.",
         )
 
     return updated_report
@@ -567,7 +613,29 @@ async def upload_engineer_survey_attachments(
                 suffix = Path(file.filename or "attachment.jpg").suffix.lower() or ".jpg"
                 stored_name = f"{report_id}-{uuid4()}{suffix}"
                 stored_path = upload_dir / stored_name
-                stored_path.write_bytes(await file.read())
+                raw_bytes = await file.read()
+
+                # Kiểm tra và nhúng EXIF chuẩn GIS vào ảnh khảo sát của kỹ sư
+                exif_data = extract_gis_exif(raw_bytes)
+                if exif_data is not None:
+                    save_bytes = inject_gis_exif(
+                        raw_bytes,
+                        latitude=exif_data.latitude,
+                        longitude=exif_data.longitude,
+                        gps_accuracy=exif_data.accuracy,
+                        altitude=exif_data.altitude,
+                        heading=exif_data.heading,
+                        recorded_at=exif_data.recorded_at or created_at,
+                        custom_metadata={
+                            "report_id": report_id,
+                            "engineer_id": current_user.id,
+                            "type": "engineer_survey_attachment",
+                        },
+                    )
+                else:
+                    save_bytes = raw_bytes
+
+                stored_path.write_bytes(save_bytes)
                 relative_path = stored_path.relative_to(settings.resolved_upload_dir.parent).as_posix()
                 attachment = repository.add_engineer_attachment(
                     report_id,

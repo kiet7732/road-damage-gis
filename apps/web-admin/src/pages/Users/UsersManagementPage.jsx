@@ -113,7 +113,13 @@ export default function UsersManagementPage() {
     setActionError('');
     try {
       await createAdminUser(createForm);
-      showToast(`Đã tạo thành công tài khoản ${createForm.role === 'field_engineer' ? 'Kỹ sư hiện trường' : 'người dùng'}!`);
+      const roleDisplayNames = {
+        field_engineer: 'Kỹ sư hiện trường',
+        reporter: 'Người phản ánh (Citizen)',
+        district_officer: 'Cán bộ địa bàn',
+        admin: 'Quản trị viên',
+      };
+      showToast(`Đã tạo thành công tài khoản ${roleDisplayNames[createForm.role] || 'người dùng'}!`);
       setIsCreateModalOpen(false);
       setCreateForm({
         fullName: '',
@@ -233,16 +239,16 @@ export default function UsersManagementPage() {
       {/* Page Header */}
       <PageHeader
         title="Quản lý tài khoản & Phân quyền"
-        subtitle="Quản lý người dùng, tạo tài khoản Kỹ sư hiện trường và phân bổ địa bàn phụ trách."
+        subtitle="Quản lý người dùng, cấp tài khoản và cấu hình địa bàn phụ trách."
         action={
           <button
             type="button"
-            id="btn-create-engineer"
+            id="btn-create-user"
             onClick={openCreateModal}
             style={styles.primaryBtn}
           >
             <FiUserPlus size={18} />
-            <span>+ Tạo tài khoản Kỹ sư</span>
+            <span>+ Cấp tài khoản mới</span>
           </button>
         }
       />

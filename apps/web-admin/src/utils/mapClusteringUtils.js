@@ -4,7 +4,7 @@ import { DAMAGE_TYPES, getStatusColor } from '../constants/statusColors';
 export const DEFAULT_ZOOM = 12;
 export const MIN_ZOOM = 6;
 export const MAX_ZOOM = 18;
-export const MIN_VISIBLE_ZOOM = 12;
+export const MIN_VISIBLE_ZOOM = 6;
 export const VIEWPORT_DEBOUNCE_MS = 550;
 export const CLUSTER_STATUS_ORDER = ['pending', 'processing', 'repaired'];
 export const COLLISION_THRESHOLD_PX = 38;

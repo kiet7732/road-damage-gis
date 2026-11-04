@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -57,6 +58,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         ai_status: str,
         status: str,
         ai_result: AiDetectionResult,
+        admin_approved_for_survey: int = 1,
         created_at: str,
         updated_at: str,
     ) -> ReporterReportResponse:
@@ -78,10 +80,11 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                     status,
                     ai_message,
                     detections_json,
+                    admin_approved_for_survey,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+                VALUES (?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
                 """,
                 (
                     report_id,
@@ -97,6 +100,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                     status,
                     ai_result.message,
                     detections_json,
+                    admin_approved_for_survey,
                     created_at,
                     updated_at,
                 ),
@@ -118,10 +122,11 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                     status,
                     ai_message,
                     detections_json,
+                    admin_approved_for_survey,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report_id,
@@ -137,6 +142,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                     status,
                     ai_result.message,
                     detections_json,
+                    admin_approved_for_survey,
                     created_at,
                     updated_at,
                 ),
@@ -208,6 +214,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         updated_at: str,
         include_admin_fields: bool = True,
     ) -> ReporterReportResponse | AdminReportResponse | None:
+        normalized_status = self._normalize_status(status)
         self.connection.execute(
             """
             UPDATE reports
@@ -215,7 +222,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             WHERE id = ?
             """,
             (
-                status,
+                normalized_status,
                 admin_note,
                 updated_at,
                 report_id,
@@ -251,6 +258,47 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
 
         return self.get_report(report_id, include_admin_fields=include_admin_fields)
 
+    def approve_for_survey(
+        self,
+        report_id: str,
+        *,
+        actor_id: str,
+        admin_note: str | None = None,
+        updated_at: str,
+    ) -> AdminReportResponse | None:
+        self.connection.execute(
+            """
+            UPDATE reports
+            SET admin_approved_for_survey = 1,
+                field_status = CASE
+                    WHEN field_status IS NULL OR TRIM(field_status) = '' THEN 'available_for_inspection'
+                    ELSE field_status
+                END,
+                status = CASE
+                    WHEN LOWER(TRIM(COALESCE(status, ''))) IN ('new', 'pending', 'pending_verification') THEN 'verified'
+                    ELSE status
+                END,
+                admin_note = COALESCE(?, admin_note),
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                admin_note,
+                updated_at,
+                report_id,
+            ),
+        )
+        if hasattr(self, "_insert_engineer_action"):
+            self._insert_engineer_action(
+                report_id=report_id,
+                engineer_id=actor_id,
+                action_type="admin_approve_for_survey",
+                payload={"approved_by": actor_id, "admin_note": admin_note},
+                created_at=updated_at,
+            )
+        self.connection.commit()
+        return self.get_report(report_id, include_admin_fields=True)
+
     def list_reports(
         self,
         *,
@@ -262,6 +310,8 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         damage_type: str | None = None,
         search: str | None = None,
         ai_status: str | None = None,
+        has_damage_detected: bool | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -276,6 +326,8 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             damage_type=damage_type,
             search=search,
             ai_status=ai_status,
+            has_damage_detected=has_damage_detected,
+            province=province,
             district=district,
             ward=ward,
             road_name=road_name,
@@ -340,6 +392,8 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         damage_type: str | None = None,
         search: str | None = None,
         ai_status: str | None = None,
+        has_damage_detected: bool | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -371,20 +425,60 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             where_clauses.append("LOWER(TRIM(COALESCE(reports.ai_status, ''))) = ?")
             params.append(normalized_ai_status)
 
+        if has_damage_detected is True:
+            # AI có phát hiện hư hỏng (detections_count > 0)
+            if self.settings.gis_backend == "postgis":
+                where_clauses.append(
+                    "COALESCE((reports.detections_json->>'detections_count')::int, 0) > 0"
+                )
+            else:
+                where_clauses.append(
+                    "COALESCE(json_extract(reports.detections_json, '$.detections_count'), 0) > 0"
+                )
+        elif has_damage_detected is False:
+            # AI KHÔNG phát hiện hư hỏng (detections_count = 0 hoặc ai_status = 'no_damage_detected')
+            if self.settings.gis_backend == "postgis":
+                where_clauses.append(
+                    "(COALESCE((reports.detections_json->>'detections_count')::int, 0) = 0 OR LOWER(TRIM(COALESCE(reports.ai_status, ''))) = 'no_damage_detected')"
+                )
+            else:
+                where_clauses.append(
+                    "(COALESCE(json_extract(reports.detections_json, '$.detections_count'), 0) = 0 OR LOWER(TRIM(COALESCE(reports.ai_status, ''))) = 'no_damage_detected')"
+                )
+
+        if province and province.strip():
+            prov = province.strip()
+            where_clauses.append("(LOWER(TRIM(COALESCE(reports.province, ''))) LIKE ?)")
+            params.append(f"%{prov.lower()}%")
+
         if district and district.strip():
             d = district.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.district, '')) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ?)")
-            params.extend([d, d.lower()])
+            stripped_d = re.sub(r"^(thành phố|thị xã|quận|huyện)\s+", "", d, flags=re.IGNORECASE).strip()
+            where_clauses.append(
+                "(TRIM(COALESCE(reports.district, '')) = ? "
+                "OR LOWER(TRIM(COALESCE(reports.district, ''))) = ? "
+                "OR LOWER(TRIM(COALESCE(reports.district, ''))) LIKE ?)"
+            )
+            params.extend([d, d.lower(), f"%{stripped_d.lower()}%"])
 
         if ward and ward.strip():
             w = ward.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.ward, '')) = ? OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ?)")
-            params.extend([w, w.lower()])
+            stripped_w = re.sub(r"^(phường|xã|thị trấn)\s+", "", w, flags=re.IGNORECASE).strip()
+            where_clauses.append(
+                "(TRIM(COALESCE(reports.ward, '')) = ? "
+                "OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ? "
+                "OR LOWER(TRIM(COALESCE(reports.ward, ''))) LIKE ?)"
+            )
+            params.extend([w, w.lower(), f"%{stripped_w.lower()}%"])
 
         if road_name and road_name.strip():
             r = road_name.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.road_name, '')) = ? OR LOWER(TRIM(COALESCE(reports.road_name, ''))) = ?)")
-            params.extend([r, r.lower()])
+            stripped_r = re.sub(r"^(đường|đại lộ|quốc lộ|hẻm|tỉnh lộ)\s+", "", r, flags=re.IGNORECASE).strip()
+            where_clauses.append(
+                "(LOWER(TRIM(COALESCE(reports.road_name, ''))) LIKE ? "
+                "OR LOWER(TRIM(COALESCE(reports.formatted_address, ''))) LIKE ?)"
+            )
+            params.extend([f"%{stripped_r.lower()}%", f"%{stripped_r.lower()}%"])
 
         if from_date and from_date.strip():
             where_clauses.append("reports.created_at >= ?")
@@ -476,6 +570,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             survey_completed_at=row["survey_completed_at"] if "survey_completed_at" in row_keys else None,
             claim_expires_at=row["claim_expires_at"] if "claim_expires_at" in row_keys else None,
             claim_status=row["claim_status"] if "claim_status" in row_keys else None,
+            admin_approved_for_survey=bool(row["admin_approved_for_survey"]) if "admin_approved_for_survey" in row_keys else False,
             attachments=self._list_engineer_attachments(row["id"]),
         )
 

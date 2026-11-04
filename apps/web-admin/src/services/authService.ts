@@ -127,15 +127,19 @@ export const loginAdmin = async (payload: LoginPayload): Promise<AdminSession> =
   }
 
   cachedAdminUser = response.user;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('rd_admin_session', 'true');
+  }
   return {
     user: response.user,
   };
 };
 
-export const fetchCurrentAdminUser = async (): Promise<AdminUser> => {
+export const fetchCurrentAdminUser = async (skipRetry = false): Promise<AdminUser> => {
   const user = await api.get<AdminUser>('/auth/me', {
     suppressGlobalError: true,
     withCredentials: true,
+    _retry: skipRetry,
     headers: {
       [WEB_ADMIN_AUTH_CONTEXT_HEADER]: WEB_ADMIN_AUTH_CONTEXT_VALUE,
     },
@@ -156,6 +160,9 @@ export const fetchCurrentAdminUser = async (): Promise<AdminUser> => {
 
 export const logoutAdmin = async (): Promise<void> => {
   cachedAdminUser = null;
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('rd_admin_session');
+  }
   try {
     await api.post(
       '/auth/logout',
@@ -198,9 +205,15 @@ export const changeAdminPassword = async (payload: ChangePasswordPayload): Promi
 export const bootstrapAdminSession =
   async (): Promise<AdminSessionBootstrapResult> => {
   try {
-    const user = await fetchCurrentAdminUser();
+    const user = await fetchCurrentAdminUser(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rd_admin_session', 'true');
+    }
     return { status: 'authenticated', user };
   } catch (error) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('rd_admin_session');
+    }
     if (error instanceof ApiClientError) {
       if (error.code === 'NETWORK_ERROR') {
         return {

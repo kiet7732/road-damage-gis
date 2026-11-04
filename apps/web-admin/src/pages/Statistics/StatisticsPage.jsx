@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiTrendingUp } from 'react-icons/fi';
+import { FiAlertTriangle, FiBarChart2, FiTrendingUp } from 'react-icons/fi';
 import DashboardLineChart from '../../components/DashboardLineChart';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
@@ -20,9 +20,11 @@ import StatisticsFilterBar from '../../components/statistics/StatisticsFilterBar
 import StatisticsKpiCards from '../../components/statistics/StatisticsKpiCards';
 import DamageTypeDistributionCard from '../../components/statistics/DamageTypeDistributionCard';
 import StatisticsRankingsPanel from '../../components/statistics/StatisticsRankingsPanel';
+import NoDamageReportsView from '../../components/statistics/NoDamageReportsView';
 
 export default function StatisticsPage() {
   const { managedDistrict } = useAuth();
+  const [viewMode, setViewMode] = useState('no-damage-reports'); // 'no-damage-reports' | 'analytics'
   const [selectedDistrict, setSelectedDistrict] = useState(managedDistrict || '');
   const [selectedPreset, setSelectedPreset] = useState('30days');
   const [customFromDate, setCustomFromDate] = useState(() => {
@@ -157,102 +159,143 @@ export default function StatisticsPage() {
     <section style={styles.page}>
       {/* 1. Tiêu đề trang */}
       <PageHeader
-        title="Thống kê & Báo cáo"
-        subtitle="Tổng hợp số liệu hư hỏng mặt đường, phân tích cơ cấu hư hại và xuất báo cáo quản lý theo chu kỳ."
+        title={
+          viewMode === 'no-damage-reports'
+            ? 'AI không phát hiện hư hỏng'
+            : 'Thống kê & Phân tích tổng hợp'
+        }
+        subtitle={
+          viewMode === 'no-damage-reports'
+            ? 'Danh sách các phản ánh người dân gửi nhưng AI không nhận diện được điểm hư hại. Báo cáo chỉ hiển thị với Quản trị viên (Admin). Bấm "Cho kiểm tra" để xác nhận chuyển cho Kỹ sư giám sát.'
+            : 'Tổng hợp số liệu hư hỏng mặt đường, phân tích cơ cấu hư hại và xuất báo cáo quản lý theo chu kỳ.'
+        }
       />
 
-      {/* 2. Thanh bộ lọc thời gian & địa bàn tinh gọn */}
-      <StatisticsFilterBar
-        selectedPreset={selectedPreset}
-        setSelectedPreset={setSelectedPreset}
-        customFromDate={customFromDate}
-        setCustomFromDate={setCustomFromDate}
-        customToDate={customToDate}
-        setCustomToDate={setCustomToDate}
-        activeDistrict={activeDistrict}
-        setSelectedDistrict={setSelectedDistrict}
-        managedDistrict={managedDistrict}
-        onOpenExportModal={() => setIsExportModalOpen(true)}
-        onExportCsv={() => handleExport({ format: 'csv', includeImage: false })}
-        isExporting={isExporting}
-        totalReports={totalReports}
-        isLoading={isLoading}
-        isRefreshing={isRefreshing}
-        onReload={reload}
-        exportNotice={exportNotice}
-      />
+      {/* 2. Thanh tab chuyển chế độ xem */}
+      <div style={styles.tabNavWrap}>
+        <button
+          type="button"
+          onClick={() => setViewMode('no-damage-reports')}
+          style={{
+            ...styles.tabNavBtn,
+            ...(viewMode === 'no-damage-reports' ? styles.tabNavBtnActive : null),
+          }}
+        >
+          <FiAlertTriangle size={16} />
+          <span>Báo cáo AI không phát hiện hư hỏng</span>
+        </button>
 
-      {/* Hộp thoại tùy chọn xuất báo cáo XLSX / CSV */}
-      <ExportModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        totalCount={totalReports}
-        onExport={handleExport}
-        isExporting={isExporting}
-      />
+        <button
+          type="button"
+          onClick={() => setViewMode('analytics')}
+          style={{
+            ...styles.tabNavBtn,
+            ...(viewMode === 'analytics' ? styles.tabNavBtnActive : null),
+          }}
+        >
+          <FiBarChart2 size={16} />
+          <span>Thống kê & Biểu đồ phân tích</span>
+        </button>
+      </div>
 
-      {/* Thông báo lỗi nếu có */}
-      {isError ? (
-        <EmptyState
-          title="Không thể tải số liệu thống kê"
-          description={error?.message || 'Có lỗi xảy ra khi kết nối máy chủ.'}
-          actionLabel="Thử lại"
-          onAction={reload}
-        />
-      ) : null}
-
-      {/* Hiệu ứng tải dữ liệu */}
-      {isLoading ? <DashboardSkeleton /> : null}
-
-      {!isLoading && !isError ? (
+      {viewMode === 'no-damage-reports' ? (
+        <NoDamageReportsView />
+      ) : (
         <>
-          {/* 3. Hàng thẻ KPIs chỉ số trong kỳ */}
-          <StatisticsKpiCards
+          {/* 3. Thanh bộ lọc thời gian & địa bàn tinh gọn */}
+          <StatisticsFilterBar
+            selectedPreset={selectedPreset}
+            setSelectedPreset={setSelectedPreset}
+            customFromDate={customFromDate}
+            setCustomFromDate={setCustomFromDate}
+            customToDate={customToDate}
+            setCustomToDate={setCustomToDate}
+            activeDistrict={activeDistrict}
+            setSelectedDistrict={setSelectedDistrict}
+            managedDistrict={managedDistrict}
+            onOpenExportModal={() => setIsExportModalOpen(true)}
+            onExportCsv={() => handleExport({ format: 'csv', includeImage: false })}
+            isExporting={isExporting}
             totalReports={totalReports}
-            pendingCount={pendingCount}
-            processingCount={processingCount}
-            repairedCount={repairedCount}
-            completionRate={completionRate}
+            isLoading={isLoading}
+            isRefreshing={isRefreshing}
+            onReload={reload}
+            exportNotice={exportNotice}
           />
 
-          {/* 4. Khu vực Biểu đồ & Cơ cấu hư hại */}
-          <div style={styles.analyticsGrid}>
-            <DamageTypeDistributionCard
-              totalReports={totalReports}
-              damageTypeSummary={damageTypeSummary}
-            />
+          {/* Hộp thoại tùy chọn xuất báo cáo XLSX / CSV */}
+          <ExportModal
+            isOpen={isExportModalOpen}
+            onClose={() => setIsExportModalOpen(false)}
+            totalCount={totalReports}
+            onExport={handleExport}
+            isExporting={isExporting}
+          />
 
-            {/* Diễn biến theo thời gian */}
-            <Panel style={styles.analyticsPanel}>
-              <div style={styles.panelHeader}>
-                <div>
-                  <h3 style={styles.panelTitle}>Diễn biến phát sinh theo thời gian</h3>
-                  <div style={styles.panelSubtitle}>
-                    Xu hướng số lượng sự cố phản ánh và trạng thái qua các mốc
+          {/* Thông báo lỗi nếu có */}
+          {isError ? (
+            <EmptyState
+              title="Không thể tải số liệu thống kê"
+              description={error?.message || 'Có lỗi xảy ra khi kết nối máy chủ.'}
+              actionLabel="Thử lại"
+              onAction={reload}
+            />
+          ) : null}
+
+          {/* Hiệu ứng tải dữ liệu */}
+          {isLoading ? <DashboardSkeleton /> : null}
+
+          {!isLoading && !isError ? (
+            <>
+              {/* Hàng thẻ KPIs chỉ số trong kỳ */}
+              <StatisticsKpiCards
+                totalReports={totalReports}
+                pendingCount={pendingCount}
+                processingCount={processingCount}
+                repairedCount={repairedCount}
+                completionRate={completionRate}
+              />
+
+              {/* Khu vực Biểu đồ & Cơ cấu hư hại */}
+              <div style={styles.analyticsGrid}>
+                <DamageTypeDistributionCard
+                  totalReports={totalReports}
+                  damageTypeSummary={damageTypeSummary}
+                />
+
+                {/* Diễn biến theo thời gian */}
+                <Panel style={styles.analyticsPanel}>
+                  <div style={styles.panelHeader}>
+                    <div>
+                      <h3 style={styles.panelTitle}>Diễn biến phát sinh theo thời gian</h3>
+                      <div style={styles.panelSubtitle}>
+                        Xu hướng số lượng sự cố phản ánh và trạng thái qua các mốc
+                      </div>
+                    </div>
+                    <FiTrendingUp size={18} color="#0284c7" />
                   </div>
-                </div>
-                <FiTrendingUp size={18} color="#0284c7" />
+
+                  {timeline.length === 0 ? (
+                    <div style={styles.emptyCardContent}>Chưa có đủ số liệu thời gian để vẽ biểu đồ.</div>
+                  ) : (
+                    <div style={styles.chartWrapper}>
+                      <DashboardLineChart data={timeline} />
+                    </div>
+                  )}
+                </Panel>
               </div>
 
-              {timeline.length === 0 ? (
-                <div style={styles.emptyCardContent}>Chưa có đủ số liệu thời gian để vẽ biểu đồ.</div>
-              ) : (
-                <div style={styles.chartWrapper}>
-                  <DashboardLineChart data={timeline} />
-                </div>
-              )}
-            </Panel>
-          </div>
-
-          {/* 5. Bảng xếp hạng Tuyến đường & Phường trọng điểm */}
-          <StatisticsRankingsPanel
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            topRoads={topRoads}
-            wardStats={wardStats}
-          />
+              {/* Bảng xếp hạng Tuyến đường & Phường trọng điểm */}
+              <StatisticsRankingsPanel
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                topRoads={topRoads}
+                wardStats={wardStats}
+              />
+            </>
+          ) : null}
         </>
-      ) : null}
+      )}
     </section>
   );
 }
@@ -264,6 +307,34 @@ const styles = {
     gap: 20,
     width: '100%',
     boxSizing: 'border-box',
+  },
+  tabNavWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#F1F5F9',
+    padding: 6,
+    borderRadius: 12,
+    width: 'fit-content',
+  },
+  tabNavBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 18px',
+    borderRadius: 8,
+    border: 'none',
+    backgroundColor: 'transparent',
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  tabNavBtnActive: {
+    backgroundColor: '#FFFFFF',
+    color: '#0F172A',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   analyticsGrid: {
     display: 'grid',

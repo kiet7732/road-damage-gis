@@ -1,6 +1,90 @@
-import { FiUserPlus, FiTool, FiAlertCircle, FiX } from 'react-icons/fi';
+import {
+  FiUserPlus,
+  FiTool,
+  FiAlertCircle,
+  FiX,
+  FiUser,
+  FiShield,
+  FiAward,
+} from 'react-icons/fi';
 import { UI_COLORS } from '../../../constants/statusColors';
 import { DISTRICT_OPTIONS } from '../../../constants/userConstants';
+
+const ROLE_MODAL_CONFIG = {
+  field_engineer: {
+    title: 'Tạo tài khoản Kỹ sư hiện trường',
+    subtitle: 'Cấp tài khoản mới để đăng nhập ứng dụng Mobile Engineer tác nghiệp',
+    bannerIcon: FiTool,
+    bannerColor: '#1D4ED8',
+    bannerBg: '#EFF6FF',
+    bannerBorder: '#BFDBFE',
+    bannerText: (
+      <span>
+        <strong>Lưu ý:</strong> Tài khoản Kỹ sư hiện trường do Ban Quản trị cấp để tác nghiệp
+        trực tiếp trên ứng dụng di động <em>Road Damage GIS</em>. Kỹ sư không thể tự đăng ký tài
+        khoản bên ngoài.
+      </span>
+    ),
+    emailPlaceholder: 'engineer@roadgis.local',
+    namePlaceholder: 'Ví dụ: Nguyễn Văn Hoàng',
+    submitText: 'Tạo tài khoản Kỹ sư',
+    hasDistrict: true,
+  },
+  reporter: {
+    title: 'Tạo tài khoản Người phản ánh (Citizen)',
+    subtitle: 'Cấp tài khoản người dân để gửi phản ánh sự cố hư hỏng đường bộ qua Mobile App',
+    bannerIcon: FiUser,
+    bannerColor: '#047857',
+    bannerBg: '#ECFDF5',
+    bannerBorder: '#A7F3D0',
+    bannerText: (
+      <span>
+        <strong>Lưu ý:</strong> Tài khoản Người phản ánh dành cho người dân báo cáo sự cố, hư hỏng
+        mặt đường trên toàn thành phố. Người dân không bị giới hạn theo địa bàn phụ trách.
+      </span>
+    ),
+    emailPlaceholder: 'nguoidan@gmail.com',
+    namePlaceholder: 'Ví dụ: Nguyễn Văn An',
+    submitText: 'Tạo tài khoản Người dân',
+    hasDistrict: false,
+  },
+  district_officer: {
+    title: 'Tạo tài khoản Cán bộ địa bàn',
+    subtitle: 'Cấp tài khoản mới để truy cập và xử lý tác nghiệp Web Admin',
+    bannerIcon: FiShield,
+    bannerColor: '#7C3AED',
+    bannerBg: '#F5F3FF',
+    bannerBorder: '#DDD6FE',
+    bannerText: (
+      <span>
+        <strong>Lưu ý:</strong> Tài khoản Cán bộ địa bàn có quyền tiếp nhận, xử lý và phân công
+        báo cáo sự cố trong phạm vi địa bàn được phân công phụ trách.
+      </span>
+    ),
+    emailPlaceholder: 'canbo@quan1.tphcm.gov.vn',
+    namePlaceholder: 'Ví dụ: Trần Văn Bình',
+    submitText: 'Tạo tài khoản Cán bộ',
+    hasDistrict: true,
+  },
+  admin: {
+    title: 'Tạo tài khoản Quản trị viên',
+    subtitle: 'Cấp tài khoản quản trị hệ thống với đầy đủ phân quyền Web Admin',
+    bannerIcon: FiAward,
+    bannerColor: '#B45309',
+    bannerBg: '#FFFBEB',
+    bannerBorder: '#FDE68A',
+    bannerText: (
+      <span>
+        <strong>Lưu ý:</strong> Quản trị viên có toàn quyền kiểm soát hệ thống, quản lý tài khoản
+        người dùng và xem báo cáo dữ liệu toàn thành phố.
+      </span>
+    ),
+    emailPlaceholder: 'admin@roadgis.local',
+    namePlaceholder: 'Ví dụ: Lê Thị Mai',
+    submitText: 'Tạo tài khoản Quản trị',
+    hasDistrict: true,
+  },
+};
 
 export default function UserCreateModal({
   isOpen,
@@ -13,6 +97,20 @@ export default function UserCreateModal({
 }) {
   if (!isOpen) return null;
 
+  const currentRole = createForm.role || 'field_engineer';
+  const cfg = ROLE_MODAL_CONFIG[currentRole] || ROLE_MODAL_CONFIG.field_engineer;
+  const BannerIcon = cfg.bannerIcon;
+  const isReporter = currentRole === 'reporter';
+
+  const handleRoleChange = (e) => {
+    const newRole = e.target.value;
+    setCreateForm({
+      ...createForm,
+      role: newRole,
+      ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
+    });
+  };
+
   return (
     <div style={styles.modalOverlay} onClick={() => !actionLoading && onClose()}>
       <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
@@ -22,10 +120,8 @@ export default function UserCreateModal({
               <FiUserPlus size={20} color={UI_COLORS.primary} />
             </div>
             <div>
-              <h3 style={styles.modalTitle}>Tạo tài khoản Kỹ sư hiện trường / Cán bộ</h3>
-              <p style={styles.modalSubtitle}>
-                Cấp tài khoản mới để đăng nhập ứng dụng Mobile Engineer hoặc Web Admin
-              </p>
+              <h3 style={styles.modalTitle}>{cfg.title}</h3>
+              <p style={styles.modalSubtitle}>{cfg.subtitle}</p>
             </div>
           </div>
           <button
@@ -38,13 +134,17 @@ export default function UserCreateModal({
           </button>
         </div>
 
-        {/* Engineer Guidance Banner */}
-        <div style={styles.guidanceBanner}>
-          <FiTool size={18} color="#1D4ED8" />
-          <div style={styles.guidanceText}>
-            <strong>Lưu ý:</strong> Tài khoản Kỹ sư hiện trường do Ban Quản trị cấp để tác nghiệp
-            trực tiếp trên ứng dụng di động <em>Road Damage GIS</em>. Kỹ sư không thể tự đăng ký tài
-            khoản bên ngoài.
+        {/* Dynamic Role Guidance Banner */}
+        <div
+          style={{
+            ...styles.guidanceBanner,
+            background: cfg.bannerBg,
+            borderColor: cfg.bannerBorder,
+          }}
+        >
+          <BannerIcon size={18} color={cfg.bannerColor} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ ...styles.guidanceText, color: cfg.bannerColor }}>
+            {cfg.bannerText}
           </div>
         </div>
 
@@ -56,44 +156,64 @@ export default function UserCreateModal({
         )}
 
         <form onSubmit={onSubmit} style={styles.modalForm}>
-          <div style={styles.formRow}>
-            <div style={styles.formCol}>
+          {isReporter ? (
+            <div style={styles.formGroup}>
               <label style={styles.label}>
                 Vai trò <span style={styles.req}>*</span>
               </label>
               <select
                 id="new-user-role"
                 value={createForm.role}
-                onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
+                onChange={handleRoleChange}
                 style={styles.input}
                 required
               >
                 <option value="field_engineer">Kỹ sư hiện trường (Mobile App)</option>
+                <option value="reporter">Người phản ánh (Citizen)</option>
                 <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
                 <option value="admin">Quản trị viên (Web Admin)</option>
-                <option value="reporter">Người phản ánh (Citizen)</option>
               </select>
             </div>
+          ) : (
+            <div style={styles.formRow}>
+              <div style={styles.formCol}>
+                <label style={styles.label}>
+                  Vai trò <span style={styles.req}>*</span>
+                </label>
+                <select
+                  id="new-user-role"
+                  value={createForm.role}
+                  onChange={handleRoleChange}
+                  style={styles.input}
+                  required
+                >
+                  <option value="field_engineer">Kỹ sư hiện trường (Mobile App)</option>
+                  <option value="reporter">Người phản ánh (Citizen)</option>
+                  <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
+                  <option value="admin">Quản trị viên (Web Admin)</option>
+                </select>
+              </div>
 
-            <div style={styles.formCol}>
-              <label style={styles.label}>
-                Địa bàn phụ trách
-              </label>
-              <select
-                id="new-user-district"
-                value={createForm.managedDistrict}
-                onChange={(e) => setCreateForm({ ...createForm, managedDistrict: e.target.value })}
-                style={styles.input}
-              >
-                <option value="">Toàn thành phố / Không giới hạn</option>
-                {DISTRICT_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <div style={styles.formCol}>
+                <label style={styles.label}>
+                  Địa bàn phụ trách
+                </label>
+                <select
+                  id="new-user-district"
+                  value={createForm.managedDistrict}
+                  onChange={(e) => setCreateForm({ ...createForm, managedDistrict: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="">Toàn thành phố / Không giới hạn</option>
+                  {DISTRICT_OPTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           <div style={styles.formGroup}>
             <label style={styles.label}>
@@ -102,7 +222,7 @@ export default function UserCreateModal({
             <input
               type="text"
               id="new-user-fullname"
-              placeholder="Ví dụ: Nguyễn Văn Hoàng"
+              placeholder={cfg.namePlaceholder}
               value={createForm.fullName}
               onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
               style={styles.input}
@@ -118,7 +238,7 @@ export default function UserCreateModal({
               <input
                 type="email"
                 id="new-user-email"
-                placeholder="engineer@roadgis.local"
+                placeholder={cfg.emailPlaceholder}
                 value={createForm.email}
                 onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
                 style={styles.input}
@@ -170,7 +290,7 @@ export default function UserCreateModal({
               style={styles.submitBtn}
               disabled={actionLoading}
             >
-              {actionLoading ? 'Đang tạo...' : 'Tạo tài khoản'}
+              {actionLoading ? 'Đang tạo...' : cfg.submitText}
             </button>
           </div>
         </form>
@@ -250,14 +370,14 @@ const styles = {
     display: 'flex',
     alignItems: 'flex-start',
     gap: 10,
-    background: '#EFF6FF',
-    border: '1px solid #BFDBFE',
+    borderWidth: 1,
+    borderStyle: 'solid',
     borderRadius: 8,
     padding: 12,
+    transition: 'all 0.2s ease',
   },
   guidanceText: {
     fontSize: 12.5,
-    color: '#1E40AF',
     lineHeight: 1.5,
   },
   modalErrorBanner: {

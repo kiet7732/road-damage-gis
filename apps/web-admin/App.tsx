@@ -14,8 +14,13 @@ import {
 import './src/styles/responsive.css';
 
 export default function App() {
+  const hasSessionHint =
+    typeof window !== 'undefined' &&
+    localStorage.getItem('rd_admin_session') === 'true' &&
+    window.location.pathname !== '/login';
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(!hasSessionHint);
   const [authBootstrapError, setAuthBootstrapError] = useState('');
   const [authBootstrapAttempt, setAuthBootstrapAttempt] = useState(0);
 
@@ -23,10 +28,25 @@ export default function App() {
     configureWebApiClient(() => {
       setIsAuthenticated(false);
       setAuthBootstrapError('');
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('rd_admin_session');
+      }
     });
+
+    if (!hasSessionHint && authBootstrapAttempt === 0) {
+      setIsAuthReady(true);
+      return;
+    }
+
+    // Impose strict 3.5s timeout on bootstrap so it NEVER hangs indefinitely
+    const timeoutId = setTimeout(() => {
+      setIsAuthReady(true);
+      setIsAuthenticated(false);
+    }, 3500);
 
     bootstrapAdminSession()
       .then((result) => {
+        clearTimeout(timeoutId);
         if (result.status === 'authenticated') {
           setIsAuthenticated(true);
           setAuthBootstrapError('');
@@ -43,13 +63,17 @@ export default function App() {
         setAuthBootstrapError('');
       })
       .catch(() => {
+        clearTimeout(timeoutId);
         setIsAuthenticated(false);
         setAuthBootstrapError('Không thể khởi tạo phiên đăng nhập quản trị.');
       })
       .finally(() => {
+        clearTimeout(timeoutId);
         setIsAuthReady(true);
       });
-  }, [authBootstrapAttempt]);
+
+    return () => clearTimeout(timeoutId);
+  }, [authBootstrapAttempt, hasSessionHint]);
 
   const handleLogout = async () => {
     await logoutAdmin();
@@ -57,7 +81,19 @@ export default function App() {
   };
 
   if (!isAuthReady) {
-    return null;
+    return (
+      <main style={styles.page}>
+        <section style={styles.card}>
+          <div style={styles.logo}>RD</div>
+          <h1 style={styles.title}>Road Damage GIS</h1>
+          <p style={styles.subtitle}>Đang xác thực phiên làm việc quản trị...</p>
+          <div style={styles.spinnerRow}>
+            <div style={styles.spinner} />
+            <span style={styles.spinnerText}>Vui lòng chờ trong giây lát...</span>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   if (authBootstrapError) {
@@ -156,5 +192,25 @@ const styles = {
   },
   button: {
     width: '100%',
+  },
+  spinnerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  spinner: {
+    width: 20,
+    height: 20,
+    border: `2.5px solid ${UI_COLORS.border}`,
+    borderTopColor: UI_COLORS.primary,
+    borderRadius: '50%',
+    animation: 'roadDamageSkeleton 0.8s linear infinite',
+  },
+  spinnerText: {
+    fontSize: 13,
+    color: UI_COLORS.textMuted,
+    fontWeight: 500,
   },
 } as const;

@@ -250,6 +250,7 @@ def init_database() -> None:
                 admin_note TEXT,
                 corrected_damage_type TEXT,
                 is_ai_overridden INTEGER DEFAULT 0,
+                admin_approved_for_survey INTEGER DEFAULT 0,
                 road_name TEXT,
                 ward TEXT,
                 district TEXT,
@@ -371,6 +372,8 @@ def init_database() -> None:
             connection.execute("ALTER TABLE reports ADD COLUMN corrected_damage_type TEXT")
         if "is_ai_overridden" not in report_columns:
             connection.execute("ALTER TABLE reports ADD COLUMN is_ai_overridden INTEGER DEFAULT 0")
+        if "admin_approved_for_survey" not in report_columns:
+            connection.execute("ALTER TABLE reports ADD COLUMN admin_approved_for_survey INTEGER DEFAULT 0")
         engineer_report_columns = {
             "assigned_engineer_id": "ALTER TABLE reports ADD COLUMN assigned_engineer_id TEXT",
             "claimed_by_engineer_id": "ALTER TABLE reports ADD COLUMN claimed_by_engineer_id TEXT",

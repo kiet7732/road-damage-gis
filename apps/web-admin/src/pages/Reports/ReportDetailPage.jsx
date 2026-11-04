@@ -14,6 +14,7 @@ import { useToast } from '../../components/ToastProvider';
 import WebButton from '../../components/WebButton';
 import useAsyncData from '../../hooks/useAsyncData';
 import {
+  approveReportForSurvey,
   fetchAdminReportDetail,
   fetchEngineerTimeline,
   getReportDetailErrorMessage,
@@ -36,6 +37,7 @@ export default function ReportDetailPage() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [damageTypeDraft, setDamageTypeDraft] = useState('D40');
   const [isUpdatingDamageType, setIsUpdatingDamageType] = useState(false);
+  const [isApprovingForSurvey, setIsApprovingForSurvey] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
   const {
@@ -304,6 +306,20 @@ export default function ReportDetailPage() {
     }
   };
 
+  const handleApproveForSurvey = async () => {
+    if (!reportId) return;
+    setIsApprovingForSurvey(true);
+    try {
+      await approveReportForSurvey(reportId, adminNoteDraft.trim() || undefined);
+      await reload('refresh');
+      showToast('Đã xác nhận cho kiểm tra. Kỹ sư giám sát hiện đã có thể nhìn thấy báo cáo.');
+    } catch (requestError) {
+      showToast(getReportDetailErrorMessage(requestError), 'error');
+    } finally {
+      setIsApprovingForSurvey(false);
+    }
+  };
+
   return (
     <section style={styles.page}>
       <PageHeader
@@ -347,6 +363,8 @@ export default function ReportDetailPage() {
             setDamageTypeDraft={setDamageTypeDraft}
             isUpdatingDamageType={isUpdatingDamageType}
             onUpdateDamageType={handleUpdateDamageType}
+            isApprovingForSurvey={isApprovingForSurvey}
+            onApproveForSurvey={handleApproveForSurvey}
           />
 
           <ReportTimelineCard historyItems={historyItems} />

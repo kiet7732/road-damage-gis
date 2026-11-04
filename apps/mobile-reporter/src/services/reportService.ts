@@ -639,6 +639,12 @@ const appendGpsToFormData = (formData: FormData, gps: GpsLocation): void => {
   formData.append('gps_accuracy', String(gps.accuracy));
   formData.append('location_source', gps.source ?? 'camera_gps');
   formData.append('location_recorded_at', gps.capturedAt);
+  if (gps.altitude != null && Number.isFinite(gps.altitude)) {
+    formData.append('altitude', String(gps.altitude));
+  }
+  if (gps.heading != null && Number.isFinite(gps.heading)) {
+    formData.append('heading', String(gps.heading));
+  }
 };
 
 export const submitRoadDamageReport = async (

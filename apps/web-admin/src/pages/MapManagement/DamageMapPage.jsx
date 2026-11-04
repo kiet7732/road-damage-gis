@@ -16,7 +16,6 @@ import {
   getMapErrorMessage,
 } from '../../services/mapAdminService';
 import AdministrativeFilterBar from '../../components/gis/AdministrativeFilterBar';
-import ReportDetailDrawer from '../../components/gis/ReportDetailDrawer';
 import MapReportListOverlay from '../../components/gis/MapReportListOverlay';
 import MapToolbar from '../../components/gis/MapToolbar';
 import { useAuth } from '../../hooks/useAuth';
@@ -41,7 +40,6 @@ export default function DamageMapPage() {
     roadName: '',
   }));
   const [selectedReport, setSelectedReport] = useState(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [focusNonce, setFocusNonce] = useState(0);
   const [fitResultsNonce, setFitResultsNonce] = useState(1);
   const [fitBoundsRequest, setFitBoundsRequest] = useState(null);
@@ -124,10 +122,9 @@ export default function DamageMapPage() {
       district: adminFilters.district,
       ward: adminFilters.ward,
       roadName: adminFilters.roadName,
-      bounds: queryBounds,
-      limit: 1000,
+      limit: 1500,
     }),
-    [filters, adminFilters, queryBounds],
+    [filters, adminFilters],
   );
 
   const { data, isLoading, isRefreshing, error, isError, reload } = useAsyncData(async () => {
@@ -144,7 +141,6 @@ export default function DamageMapPage() {
     queryState.district,
     queryState.ward,
     queryState.roadName,
-    queryState.bounds,
   ]);
 
   const mapItems = Array.isArray(data?.items) ? data.items : [];
@@ -164,6 +160,7 @@ export default function DamageMapPage() {
           eps: 0.003,
           minPoints: 2,
           status: filters.status,
+          province: adminFilters.province,
           district: adminFilters.district,
           ward: adminFilters.ward,
         });
@@ -181,7 +178,7 @@ export default function DamageMapPage() {
     return () => {
       isCancelled = true;
     };
-  }, [useServerDBSCAN, filters.status, adminFilters.district, adminFilters.ward]);
+  }, [useServerDBSCAN, filters.status, adminFilters.province, adminFilters.district, adminFilters.ward]);
 
   const selectedReportDetail = useMemo(() => {
     if (!selectedReport?.id) {
@@ -204,6 +201,19 @@ export default function DamageMapPage() {
   const resultBounds = useMemo(() => normalizeBounds(data?.bbox), [data?.bbox]);
   const canFitResults = Boolean(resultBounds && viewportSummary.total > 0);
   const isCompactMapLayout = layoutMode === 'mobile' || layoutMode === 'tablet';
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.status) count++;
+    if (filters.damageType) count++;
+    if (filters.periodDays) count++;
+    if (adminFilters.province) count++;
+    if (adminFilters.district && adminFilters.district !== (managedDistrict || '')) count++;
+    if (adminFilters.ward) count++;
+    if (adminFilters.roadName?.trim()) count++;
+    return count;
+  }, [filters, adminFilters, managedDistrict]);
+  const hasActiveFilters = activeFilterCount > 0;
 
   useEffect(() => {
     if (selectedReport && !selectedReportDetail) {
@@ -267,6 +277,25 @@ export default function DamageMapPage() {
     }
   }, [adminFilters, data, resultBounds]);
 
+  const handleResetAllFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setAdminFilters({
+      province: '',
+      district: managedDistrict || '',
+      ward: '',
+      roadName: '',
+    });
+    setSelectedReport(null);
+    setFitBoundsRequest({
+      bounds: zoomToBounds(
+        { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
+        DEFAULT_GIS_CENTER.zoom,
+      ),
+      nonce: Date.now(),
+    });
+    setFitResultsNonce((value) => value + 1);
+  }, [managedDistrict]);
+
   const handleResetAdminFilters = useCallback(() => {
     setAdminFilters({
       province: '',
@@ -275,7 +304,6 @@ export default function DamageMapPage() {
       roadName: '',
     });
     setSelectedReport(null);
-    setIsDrawerOpen(false);
     setFitBoundsRequest({
       bounds: zoomToBounds(
         { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
@@ -346,7 +374,6 @@ export default function DamageMapPage() {
 
     setSelectedReport(report);
     setFocusNonce((value) => value + 1);
-    setIsDrawerOpen(true);
   }, []);
 
   const handleViewportChange = useCallback(
@@ -362,7 +389,6 @@ export default function DamageMapPage() {
 
   const handleSelectPoint = useCallback((point) => {
     setSelectedReport(point);
-    setIsDrawerOpen(true);
   }, []);
 
   const handleOpenDetail = useCallback(
@@ -453,9 +479,7 @@ export default function DamageMapPage() {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        if (isDrawerOpen) {
-          setIsDrawerOpen(false);
-        } else if (selectedReport) {
+        if (selectedReport) {
           setSelectedReport(null);
         } else if (isReportListOpen) {
           setIsReportListOpen(false);
@@ -467,14 +491,14 @@ export default function DamageMapPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawerOpen, isMapPanelOpen, isReportListOpen, selectedReport]);
+  }, [isMapPanelOpen, isReportListOpen, selectedReport]);
 
   return (
     <section style={styles.page}>
       <div style={styles.mapStage}>
         <div style={styles.mapViewportWrap}>
-          <div style={styles.mapTopControls}>
-            <div style={styles.adminFilterSlot}>
+          <div className="road-map-top-controls" style={styles.mapTopControls}>
+            <div className="road-map-admin-filter-slot" style={styles.adminFilterSlot}>
               <AdministrativeFilterBar
                 filters={adminFilters}
                 values={adminFilters}
@@ -487,7 +511,7 @@ export default function DamageMapPage() {
                 isCompact={isCompactMapLayout}
               />
             </div>
-            <div style={styles.toolbarSlot}>
+            <div className="road-map-toolbar-slot" style={styles.toolbarSlot}>
               <MapToolbar
                 onToggleReportList={() => {
                   setIsReportListOpen((value) => !value);
@@ -512,6 +536,9 @@ export default function DamageMapPage() {
                 }}
                 isPanelActive={isCompactMapLayout ? isMapPanelOpen : isSidebarOpen}
                 isCompact={isCompactMapLayout}
+                hasActiveFilters={hasActiveFilters}
+                activeFilterCount={activeFilterCount}
+                onResetAllFilters={handleResetAllFilters}
               />
             </div>
           </div>
@@ -531,13 +558,12 @@ export default function DamageMapPage() {
                 ? { ...activeSelectedReport, zoom: SELECTED_REPORT_FOCUS_ZOOM, nonce: focusNonce }
                 : null
             }
-            selectedReport={isDrawerOpen ? null : activeSelectedReport}
+            selectedReport={activeSelectedReport}
             onViewportChange={handleViewportChange}
             onSelectPoint={handleSelectPoint}
             onOpenDetail={handleOpenDetail}
             onCloseDetail={() => {
               setSelectedReport(null);
-              setIsDrawerOpen(false);
             }}
           />
 
@@ -572,10 +598,7 @@ export default function DamageMapPage() {
                 onStatusChange={(status) => setFilters((f) => ({ ...f, status }))}
                 onDamageTypeChange={(damageType) => setFilters((f) => ({ ...f, damageType }))}
                 onPeriodChange={(periodDays) => setFilters((f) => ({ ...f, periodDays }))}
-                onReset={() => {
-                  setFilters(DEFAULT_FILTERS);
-                  setFitResultsNonce((value) => value + 1);
-                }}
+                onReset={handleResetAllFilters}
                 onFitResults={() => setFitResultsNonce((value) => value + 1)}
                 onReload={scheduleSoftRefresh}
                 onClose={() => setIsMapPanelOpen(false)}
@@ -596,10 +619,7 @@ export default function DamageMapPage() {
               onStatusChange={(status) => setFilters((f) => ({ ...f, status }))}
               onDamageTypeChange={(damageType) => setFilters((f) => ({ ...f, damageType }))}
               onPeriodChange={(periodDays) => setFilters((f) => ({ ...f, periodDays }))}
-              onReset={() => {
-                setFilters(DEFAULT_FILTERS);
-                setFitResultsNonce((value) => value + 1);
-              }}
+              onReset={handleResetAllFilters}
               onFitResults={() => setFitResultsNonce((value) => value + 1)}
               onReload={scheduleSoftRefresh}
               onClose={() => setIsSidebarOpen(false)}
@@ -607,13 +627,6 @@ export default function DamageMapPage() {
           </aside>
         ) : null}
       </div>
-
-      <ReportDetailDrawer
-        report={activeSelectedReport}
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        onOpenFullDetail={handleOpenDetail}
-      />
     </section>
   );
 }
@@ -646,25 +659,28 @@ const styles = {
   },
   mapTopControls: {
     position: 'absolute',
-    top: 14,
-    left: 14,
-    right: 14,
+    top: 10,
+    left: 10,
+    right: 10,
     zIndex: 650,
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
+    alignItems: 'center',
+    gap: 8,
     pointerEvents: 'none',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
   adminFilterSlot: {
     pointerEvents: 'auto',
     flex: '1 1 auto',
+    minWidth: 0,
     maxWidth: '100%',
   },
   toolbarSlot: {
     pointerEvents: 'auto',
     flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
   },
   mapSidebar: {
     width: 320,

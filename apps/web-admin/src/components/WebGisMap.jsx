@@ -41,17 +41,7 @@ function WebGisMap({
   }, [zoom]);
 
   const clusters = useMemo(() => {
-    // 1. Khi phóng to ra ngoài / zoom xa (activeZoom < MIN_VISIBLE_ZOOM), ẩn toàn bộ
-    if (activeZoom < MIN_VISIBLE_ZOOM) {
-      return [];
-    }
-
-    // 2. Thuật toán gom cụm thông minh theo khoảng cách pixel màn hình trên danh sách điểm:
-    if (safeItems.length > 0) {
-      return buildScreenClusters(safeItems, activeZoom);
-    }
-
-    // 3. Fallback khi safeItems chưa tải xong nhưng có serverClusters
+    // 1. Nếu đang bật phân cụm mật độ DBSCAN từ server và có dữ liệu:
     if (Array.isArray(serverClusters) && serverClusters.length > 0) {
       const result = [];
       serverClusters.forEach((sc, idx) => {
@@ -65,7 +55,7 @@ function WebGisMap({
               latitude: lat,
               longitude: lng,
               count: sc.count,
-              items: Array.isArray(sc.items) ? sc.items : Array(sc.count).fill({ status: 'pending' }),
+              items: Array.isArray(sc.items) && sc.items.length > 0 ? sc.items : Array(sc.count).fill({ status: 'pending' }),
               isServerCluster: true,
             });
           }
@@ -87,6 +77,11 @@ function WebGisMap({
         }
       });
       return result;
+    }
+
+    // 2. Thuật toán gom cụm thông minh theo khoảng cách pixel màn hình trên toàn bộ danh sách điểm:
+    if (safeItems.length > 0) {
+      return buildScreenClusters(safeItems, activeZoom);
     }
 
     return [];

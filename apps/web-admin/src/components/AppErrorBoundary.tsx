@@ -8,6 +8,7 @@ type AppErrorBoundaryProps = {
 type AppErrorBoundaryState = {
   hasError: boolean;
   errorMessage: string;
+  isChunkError: boolean;
 };
 
 export default class AppErrorBoundary extends Component<
@@ -17,23 +18,51 @@ export default class AppErrorBoundary extends Component<
   state: AppErrorBoundaryState = {
     hasError: false,
     errorMessage: '',
+    isChunkError: false,
   };
 
   static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    const msg = error?.message || 'Giao diện đang gặp sự cố. Vui lòng thử lại.';
+    const isChunk =
+      msg.includes('dynamically imported module') ||
+      msg.includes('Loading chunk') ||
+      msg.includes('Failed to fetch');
+
     return {
       hasError: true,
-      errorMessage: error.message || 'Giao diện đang gặp sự cố. Vui lòng thử lại.',
+      errorMessage: msg,
+      isChunkError: isChunk,
     };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Web admin render error:', error, errorInfo);
+
+    // Auto-reload once if dynamic import failed due to momentary network/tunnel blip
+    const msg = error?.message || '';
+    if (
+      msg.includes('dynamically imported module') ||
+      msg.includes('Loading chunk') ||
+      msg.includes('Failed to fetch')
+    ) {
+      const alreadyReloaded = sessionStorage.getItem('rd_chunk_reload_done');
+      if (!alreadyReloaded) {
+        sessionStorage.setItem('rd_chunk_reload_done', 'true');
+        window.location.reload();
+      }
+    }
   }
 
   handleRetry = () => {
+    sessionStorage.removeItem('rd_chunk_reload_done');
+    if (this.state.isChunkError) {
+      window.location.reload();
+      return;
+    }
     this.setState({
       hasError: false,
       errorMessage: '',
+      isChunkError: false,
     });
   };
 
@@ -44,9 +73,13 @@ export default class AppErrorBoundary extends Component<
           <div style={styles.card}>
             <div style={styles.icon}>!</div>
             <h1 style={styles.title}>Đã có lỗi xảy ra</h1>
-            <p style={styles.description}>{this.state.errorMessage}</p>
+            <p style={styles.description}>
+              {this.state.isChunkError
+                ? 'Không thể tải mô-đun trang do kết nối mạng vừa bị gián đoạn. Vui lòng nhấn Thử lại để tải lại phiên làm việc.'
+                : this.state.errorMessage}
+            </p>
             <button style={styles.button} type="button" onClick={this.handleRetry}>
-              Thử lại
+              {this.state.isChunkError ? 'Tải lại trang' : 'Thử lại'}
             </button>
           </div>
         </div>

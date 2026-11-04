@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppIcon, colors, radius, spacing } from '../../../shared/mobileShared';
+import { AppIcon, colors, radius, spacing, embedGisExifToPhoto } from '../../../shared/mobileShared';
 import type { EngineerTask } from '../../../services/engineerReportService';
 
 const MAX_IMAGE_DIMENSION = 1600;
@@ -123,9 +123,28 @@ export default function EngineerCameraView({
         }
       }
 
+      const snapshotLat = currentGps?.latitude ?? task.gps.latitude;
+      const snapshotLng = currentGps?.longitude ?? task.gps.longitude;
+      const snapshotAcc = currentGps?.accuracy ?? task.gps.accuracy ?? 5;
+
+      const photoWithExifUri = await embedGisExifToPhoto(
+        optimized.uri,
+        {
+          latitude: snapshotLat,
+          longitude: snapshotLng,
+          accuracy: snapshotAcc,
+          capturedAt: new Date().toISOString(),
+          source: 'camera_gps',
+        },
+        {
+          source: 'engineer_survey',
+          task_id: task.id,
+        },
+      );
+
       if (isMountedRef.current) {
         setIsCapturing(false);
-        onCapturePhoto(optimized.uri);
+        onCapturePhoto(photoWithExifUri);
       }
     } catch (err) {
       if (isMountedRef.current) {

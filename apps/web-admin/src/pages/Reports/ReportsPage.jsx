@@ -50,7 +50,7 @@ export default function ReportsPage({ mode = 'all' }) {
       district: adminFilters.district,
       ward: adminFilters.ward,
       roadName: adminFilters.roadName,
-      aiStatus: isManualReviewMode ? 'manual_review_required' : '',
+      hasDamageDetected: isManualReviewMode ? true : undefined,
       reloadKey,
     }),
     [appliedFilters, adminFilters, isManualReviewMode, page, reloadKey],
@@ -78,6 +78,7 @@ export default function ReportsPage({ mode = 'all' }) {
     queryState.district,
     queryState.ward,
     queryState.roadName,
+    queryState.hasDamageDetected,
     queryState.reloadKey,
   ]);
 
@@ -129,11 +130,11 @@ export default function ReportsPage({ mode = 'all' }) {
   return (
     <section style={styles.page}>
       <PageHeader
-        title={isManualReviewMode ? 'Ảnh cần kiểm tra thêm' : 'Danh sách phản ánh'}
+        title={isManualReviewMode ? 'AI phát hiện hư hỏng' : 'Tất cả phản ánh'}
         subtitle={
           isManualReviewMode
-            ? 'Theo dõi các phản ánh đã gửi thành công nhưng AI chưa xác định rõ loại hư hỏng từ ảnh.'
-            : 'Xem, tìm kiếm và lọc các phản ánh hư hỏng mặt đường đã được tiếp nhận.'
+            ? 'Theo dõi các phản ánh mà AI đã phân tích và phát hiện được hư hỏng (ổ gà, vết nứt...) từ ảnh chụp.'
+            : 'Xem, tìm kiếm và lọc toàn bộ phản ánh hư hỏng mặt đường đã được tiếp nhận.'
         }
       />
 
@@ -145,7 +146,7 @@ export default function ReportsPage({ mode = 'all' }) {
       />
 
       <ReportTable
-        title={isManualReviewMode ? 'Danh sách phản ánh cần kiểm tra thêm' : 'Danh sách phản ánh hư hỏng mặt đường'}
+        title={isManualReviewMode ? 'Danh sách phản ánh AI phát hiện hư hỏng' : 'Danh sách phản ánh hư hỏng mặt đường'}
         items={reportItems}
         total={Number(data?.total) || 0}
         page={Number(data?.page) || page}

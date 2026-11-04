@@ -99,22 +99,7 @@ const runtimeEnv = (): RuntimeEnv => ({
 });
 
 export const getApiBaseURL = (): string => {
-  // 1. Browser runtime check: Automatically match public HTTPS domain or local host
-  if (typeof window !== 'undefined' && window.location) {
-    const { hostname, protocol } = window.location;
-
-    // When running on public domain (e.g. admin.tuannguyenkiet0612.dpdns.org) or any HTTPS origin
-    if (hostname.includes('tuannguyenkiet0612.dpdns.org') || (protocol === 'https:' && hostname !== 'localhost' && hostname !== '127.0.0.1')) {
-      return DEFAULT_PUBLIC_API_URL;
-    }
-
-    // When running on LAN IP (e.g. 192.168.1.x:5173) in browser
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && protocol === 'http:') {
-      return `http://${hostname}:5000/api`;
-    }
-  }
-
-  // 2. Direct member expression so Metro inlines EXPO_PUBLIC_API_URL at build time
+  // 1. Explicitly configured URLs via build-time or runtime environment variables (Highest priority)
   const expoApiUrl =
     typeof process !== 'undefined' && process.env
       ? process.env.EXPO_PUBLIC_API_URL
@@ -131,6 +116,25 @@ export const getApiBaseURL = (): string => {
 
   if (configuredUrl && configuredUrl.trim()) {
     return configuredUrl.trim().replace(/\/+$/, '');
+  }
+
+  // 2. Browser runtime check: Automatically match current host/origin
+  if (typeof window !== 'undefined' && window.location) {
+    const { hostname, protocol, origin } = window.location;
+
+    // When running on public domain (e.g. admin.tuannguyenkiet0612.dpdns.org) or any HTTPS origin
+    if (hostname.includes('tuannguyenkiet0612.dpdns.org')) {
+      return DEFAULT_PUBLIC_API_URL;
+    }
+
+    if (protocol === 'https:' || (hostname !== 'localhost' && hostname !== '127.0.0.1')) {
+      return `${origin}/api`;
+    }
+
+    // When running on LAN IP (e.g. 192.168.1.x:5173) in browser
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && protocol === 'http:') {
+      return `http://${hostname}:5000/api`;
+    }
   }
 
   // 3. Fallback for Native Apps / Node

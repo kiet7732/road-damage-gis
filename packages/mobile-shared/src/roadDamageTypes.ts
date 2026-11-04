@@ -5,8 +5,10 @@ export type GpsLocation = {
   latitude: number;
   longitude: number;
   accuracy: number;
+  altitude?: number | null;
+  heading?: number | null;
   capturedAt: string;
-  source?: 'camera_gps' | 'map_selected';
+  source?: 'camera_gps' | 'map_selected' | 'camera_exif';
 };
 
 export type DamageSummary = {

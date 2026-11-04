@@ -91,6 +91,7 @@ class AdminReportResponse(ReporterReportResponse):
     survey_completed_at: str | None = None
     claim_expires_at: str | None = None
     claim_status: str | None = None
+    admin_approved_for_survey: bool = False
     attachments: list[EngineerAttachmentResponse] = Field(default_factory=list)
 
 
@@ -208,7 +209,7 @@ class ReportMapListResponse(BaseModel):
 
 
 class UpdateReportStatusRequest(BaseModel):
-    status: Literal["pending", "processing", "repaired", "rejected"]
+    status: Literal["pending", "processing", "in_progress", "repaired", "rejected"]
     admin_note: str | None = None
 
 
@@ -274,6 +275,10 @@ class EngineerSurveyRequest(BaseModel):
 
 class AdminAssignEngineerRequest(BaseModel):
     engineer_id: str
+
+
+class ApproveForSurveyRequest(BaseModel):
+    admin_note: str | None = None
 
 
 class EngineerTimelineItem(BaseModel):

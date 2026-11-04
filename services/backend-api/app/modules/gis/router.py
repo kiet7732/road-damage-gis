@@ -104,6 +104,7 @@ def search_admin_gis_reports(
     max_longitude: float | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     damage_type: str | None = Query(default=None),
+    province: str | None = Query(default=None),
     district: str | None = Query(default=None),
     ward: str | None = Query(default=None),
     road_name: str | None = Query(default=None),
@@ -120,6 +121,7 @@ def search_admin_gis_reports(
     return service.search_report_features(
         status=status_filter,
         damage_type=damage_type,
+        province=province,
         district=effective_district,
         ward=ward,
         road_name=road_name,
@@ -134,6 +136,7 @@ def get_gis_report_clusters(
     eps: float = Query(default=0.001, gt=0, description="Bán kính gom cụm theo độ (~111m)"),
     min_points: int = Query(default=5, ge=1, description="Số điểm tối thiểu để tạo cụm"),
     status_filter: str | None = Query(default=None, alias="status"),
+    province: str | None = Query(default=None),
     district: str | None = Query(default=None),
     ward: str | None = Query(default=None),
     current_user: AuthUser = Depends(get_current_user),
@@ -144,6 +147,7 @@ def get_gis_report_clusters(
         eps=eps,
         min_points=min_points,
         status=status_filter,
+        province=province,
         district=effective_district,
         ward=ward,
     )

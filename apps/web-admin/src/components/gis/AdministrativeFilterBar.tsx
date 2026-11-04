@@ -132,15 +132,18 @@ export default function AdministrativeFilterBar({
   // Selected province data
   const currentProvince = useMemo(() => {
     if (!activeValues.province) {
-      return provinces[0] || null;
+      return null;
     }
-    return provinces.find((p) => p.name === activeValues.province) || provinces[0] || null;
+    return provinces.find((p) => p.name === activeValues.province) || null;
   }, [provinces, activeValues.province]);
 
-  // Available districts
+  // Available districts: all districts across all provinces if no province selected, or current province districts
   const districtList = useMemo(() => {
-    return currentProvince?.districts || [];
-  }, [currentProvince]);
+    if (!currentProvince) {
+      return provinces.flatMap((p) => p.districts || []);
+    }
+    return currentProvince.districts || [];
+  }, [currentProvince, provinces]);
 
   // Selected district data
   const currentDistrict = useMemo(() => {
@@ -185,8 +188,11 @@ export default function AdministrativeFilterBar({
     }
 
     setLocalRoadName('');
+    const owningProvince = provinces.find((p) =>
+      p.districts?.some((d) => d.name === districtName),
+    );
     onChange({
-      province: activeValues.province || (currentProvince?.name ?? ''),
+      province: activeValues.province || (owningProvince?.name ?? ''),
       district: districtName,
       ward: '',
       roadName: '',
@@ -240,6 +246,7 @@ export default function AdministrativeFilterBar({
   };
 
   const hasFilterActive = Boolean(
+    activeValues.province ||
     activeValues.ward ||
     activeValues.roadName ||
     localRoadName.trim() ||
@@ -247,10 +254,10 @@ export default function AdministrativeFilterBar({
   );
 
   const selectWrapperStyle = isCompact
-    ? { ...styles.selectWrapper, minWidth: 100, flex: '1 1 110px' }
+    ? { ...styles.selectWrapper, minWidth: 70, flex: '1 1 95px' }
     : styles.selectWrapper;
   const searchWrapperStyle = isCompact
-    ? { ...styles.searchWrapper, minWidth: 110, flex: '1 1 125px' }
+    ? { ...styles.searchWrapper, minWidth: 75, flex: '1 1 100px' }
     : styles.searchWrapper;
 
   return (
@@ -263,8 +270,8 @@ export default function AdministrativeFilterBar({
     >
       <div style={styles.controlsGrid}>
         <div style={styles.titleWrap} title="Lọc địa giới hành chính">
-          <FiCompass size={16} color={UI_COLORS.primary} />
-          {!isCompact ? <span style={styles.title}>Địa giới:</span> : null}
+          <FiCompass size={15} color={UI_COLORS.primary} style={{ flexShrink: 0 }} />
+          {!isCompact ? <span className="road-admin-filter-bar-title" style={styles.title}>Địa giới:</span> : null}
         </div>
 
         {/* 1. Tỉnh / Thành phố */}
@@ -406,10 +413,11 @@ export default function AdministrativeFilterBar({
             type="button"
             onClick={handleReset}
             style={styles.resetBtn}
+            aria-label="Đặt lại bộ lọc"
             title="Xóa toàn bộ bộ lọc địa giới và trở về góc nhìn mặc định"
           >
             <FiRotateCcw size={13} />
-            {!isCompact ? <span>Đặt lại</span> : null}
+            <span>Hủy lọc</span>
           </button>
         ) : null}
       </div>
@@ -421,58 +429,71 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    padding: '8px 14px',
+    flexWrap: 'nowrap',
+    gap: 6,
+    padding: '4px 8px',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    border: `1px solid ${UI_COLORS.border}`,
-    boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: UI_COLORS.border,
+    boxShadow: '0 2px 10px rgba(15, 23, 42, 0.08)',
+    minWidth: 0,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
   },
   compactContainer: {
-    padding: '6px 10px',
-    gap: 6,
+    padding: '3px 6px',
+    gap: 4,
   },
   titleWrap: {
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
-    marginRight: 4,
+    gap: 4,
+    marginRight: 2,
+    flexShrink: 0,
     userSelect: 'none',
   },
   title: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 800,
     color: UI_COLORS.textNavy,
     textTransform: 'uppercase',
-    letterSpacing: '0.4px',
+    letterSpacing: '0.3px',
+    whiteSpace: 'nowrap',
   },
   controlsGrid: {
     display: 'flex',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexWrap: 'nowrap',
+    gap: 6,
     flex: 1,
+    minWidth: 0,
   },
   selectWrapper: {
     position: 'relative',
-    minWidth: 120,
-    maxWidth: 200,
-    flex: '1 1 135px',
+    minWidth: 78,
+    maxWidth: 155,
+    flex: '1 1 105px',
   },
   select: {
     width: '100%',
-    height: 36,
-    padding: '0 10px',
-    fontSize: 13,
+    height: 34,
+    padding: '0 6px',
+    fontSize: 12,
     fontWeight: 600,
     color: UI_COLORS.text,
     backgroundColor: '#F8FAFC',
-    border: `1px solid ${UI_COLORS.border}`,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: UI_COLORS.border,
     borderRadius: 8,
     outline: 'none',
     cursor: 'pointer',
     transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+    textOverflow: 'ellipsis',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
   },
   selectActive: {
     borderColor: UI_COLORS.primary,
@@ -489,32 +510,35 @@ const styles: Record<string, React.CSSProperties> = {
   },
   searchWrapper: {
     position: 'relative',
-    minWidth: 130,
-    maxWidth: 240,
-    flex: '1 1 150px',
+    minWidth: 82,
+    maxWidth: 165,
+    flex: '1 1 110px',
     display: 'flex',
     alignItems: 'center',
   },
   searchIcon: {
     position: 'absolute',
-    left: 10,
+    left: 8,
     color: '#94A3B8',
     pointerEvents: 'none',
   },
   input: {
     width: '100%',
-    height: 36,
-    paddingLeft: 30,
-    paddingRight: 28,
-    fontSize: 13,
+    height: 34,
+    paddingLeft: 26,
+    paddingRight: 22,
+    fontSize: 12,
     fontWeight: 500,
     color: UI_COLORS.text,
     backgroundColor: '#F8FAFC',
-    border: `1px solid ${UI_COLORS.border}`,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: UI_COLORS.border,
     borderRadius: 8,
     outline: 'none',
     boxSizing: 'border-box',
     transition: 'border-color 0.15s ease, background-color 0.15s ease',
+    textOverflow: 'ellipsis',
   },
   inputActive: {
     borderColor: UI_COLORS.primary,
@@ -524,15 +548,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   clearSearchBtn: {
     position: 'absolute',
-    right: 8,
+    right: 5,
     top: '50%',
     transform: 'translateY(-50%)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     border: 'none',
     backgroundColor: '#E2E8F0',
     color: '#475569',
@@ -543,31 +567,34 @@ const styles: Record<string, React.CSSProperties> = {
   resultBadgeWrap: {
     display: 'flex',
     alignItems: 'center',
+    flexShrink: 0,
   },
   loadingBadge: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 5,
-    height: 28,
-    padding: '0 10px',
-    borderRadius: 999,
+    gap: 4,
+    height: 26,
+    padding: '0 6px',
+    borderRadius: 6,
     backgroundColor: '#F1F5F9',
     color: '#64748B',
     fontSize: 11,
     fontWeight: 600,
+    whiteSpace: 'nowrap',
   },
   successBadge: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 6,
-    height: 28,
-    padding: '0 10px',
-    borderRadius: 999,
+    gap: 4,
+    height: 26,
+    padding: '0 7px',
+    borderRadius: 6,
     backgroundColor: '#ECFDF5',
     border: '1px solid #A7F3D0',
     color: '#047857',
     fontSize: 11,
     fontWeight: 700,
+    whiteSpace: 'nowrap',
   },
   dotSuccess: {
     width: 6,
@@ -578,15 +605,16 @@ const styles: Record<string, React.CSSProperties> = {
   emptyBadge: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 6,
-    height: 28,
-    padding: '0 10px',
-    borderRadius: 999,
+    gap: 4,
+    height: 26,
+    padding: '0 7px',
+    borderRadius: 6,
     backgroundColor: '#FFFBEB',
     border: '1px solid #FDE68A',
     color: '#B45309',
     fontSize: 11,
     fontWeight: 700,
+    whiteSpace: 'nowrap',
   },
   dotEmpty: {
     width: 6,
@@ -597,9 +625,9 @@ const styles: Record<string, React.CSSProperties> = {
   resetBtn: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 5,
-    height: 36,
-    padding: '0 12px',
+    gap: 4,
+    height: 34,
+    padding: '0 8px',
     fontSize: 12,
     fontWeight: 700,
     color: '#DC2626',
@@ -607,6 +635,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #FECACA',
     borderRadius: 8,
     cursor: 'pointer',
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
     transition: 'background-color 0.15s ease',
   },
 };

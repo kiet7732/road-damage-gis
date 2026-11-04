@@ -17,6 +17,7 @@ class GisService:
         user_id: str | None = None,
         status: str | None = None,
         damage_type: str | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -29,6 +30,7 @@ class GisService:
             user_id=user_id,
             status=status,
             damage_type=damage_type,
+            province=province,
             district=district,
             ward=ward,
             road_name=road_name,
@@ -66,6 +68,7 @@ class GisService:
         eps: float = 0.001,
         min_points: int = 5,
         status: str | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
     ) -> list[GisReportClusterItem]:
@@ -73,6 +76,7 @@ class GisService:
             eps=eps,
             min_points=min_points,
             status=status,
+            province=province,
             district=district,
             ward=ward,
         )

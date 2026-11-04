@@ -26,4 +26,6 @@ export {
   type MapRegion,
   type RoadDamageMapHandle,
   ForgotPasswordModal,
+  embedGisExifToPhoto,
+  convertDecimalToDms,
 } from '../../../../packages/mobile-shared/src';

@@ -18,6 +18,7 @@ import {
   previewRoadDamageDetection,
 } from '../../services/reportService';
 import { ensureLocationReady } from '../../services/locationService';
+import { embedGisExifToPhoto } from '../../services/exifService';
 import type { GpsLocation, RootStackParamList } from '../../types/navigation';
 import FocusFrame from './components/FocusFrame';
 
@@ -81,6 +82,8 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
       const latitude = location.coords.latitude;
       const longitude = location.coords.longitude;
       const accuracy = Math.round(location.coords.accuracy ?? 0);
+      const altitude = location.coords.altitude ?? null;
+      const heading = location.coords.heading ?? null;
 
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         setGps(null);
@@ -110,7 +113,9 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
         latitude,
         longitude,
         accuracy,
-        capturedAt: new Date().toISOString(),
+        altitude,
+        heading,
+        capturedAt: new Date(location.timestamp || Date.now()).toISOString(),
         source: 'camera_gps',
       });
     } catch {
@@ -150,6 +155,39 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
         throw new Error('Không chụp được ảnh.');
       }
 
+      // Ghi nhận trạng thái vị trí thời gian thực NGAY TẠI THỜI ĐIỂM CHỤP
+      let snapshotGps: GpsLocation = {
+        ...gps,
+        capturedAt: new Date().toISOString(),
+        source: 'camera_gps',
+      };
+
+      try {
+        const freshLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+
+        const freshLat = freshLocation.coords.latitude;
+        const freshLon = freshLocation.coords.longitude;
+        if (
+          Number.isFinite(freshLat) &&
+          Number.isFinite(freshLon) &&
+          !(freshLat === 0 && freshLon === 0)
+        ) {
+          snapshotGps = {
+            latitude: freshLat,
+            longitude: freshLon,
+            accuracy: Math.round(freshLocation.coords.accuracy ?? gps.accuracy),
+            altitude: freshLocation.coords.altitude ?? gps.altitude ?? null,
+            heading: freshLocation.coords.heading ?? gps.heading ?? null,
+            capturedAt: new Date(freshLocation.timestamp || Date.now()).toISOString(),
+            source: 'camera_gps',
+          };
+        }
+      } catch {
+        // Giữ nguyên snapshotGps nếu việc refresh vị trí nền gặp lỗi
+      }
+
       const photoWidth = Number.isFinite(photo.width) ? photo.width : undefined;
       const photoHeight = Number.isFinite(photo.height) ? photo.height : undefined;
       const longestEdge = Math.max(photoWidth ?? 0, photoHeight ?? 0);
@@ -175,7 +213,10 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
         throw new Error('Không tối ưu được ảnh.');
       }
 
-      if (photo.uri !== optimizedPhoto.uri) {
+      // DÁN EXIF METADATA VÀO ẢNH NGAY LẬP TỨC TẠI THỜI ĐIỂM CHỤP
+      const finalPhotoUri = await embedGisExifToPhoto(optimizedPhoto.uri, snapshotGps);
+
+      if (photo.uri !== finalPhotoUri && photo.uri !== optimizedPhoto.uri) {
         try {
           const rawPhoto = new ExpoFile(photo.uri) as unknown as {
             exists: boolean;
@@ -196,22 +237,18 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
       setIsCheckingPhoto(true);
 
       try {
-        const initialPreviewResult = await previewRoadDamageDetection(optimizedPhoto.uri);
+        const initialPreviewResult = await previewRoadDamageDetection(finalPhotoUri);
 
         if (!isMountedRef.current) {
           return;
         }
 
         navigation.navigate('ConfirmReportScreen', {
-          photoUri: optimizedPhoto.uri,
-          gps: {
-            ...gps,
-            capturedAt: new Date().toISOString(),
-            source: 'camera_gps',
-          },
+          photoUri: finalPhotoUri,
+          gps: snapshotGps,
           initialPreviewResult,
           initialPreviewError: null,
-          initialPreviewPhotoUri: optimizedPhoto.uri,
+          initialPreviewPhotoUri: finalPhotoUri,
         });
       } catch (error) {
         if (!isMountedRef.current) {
@@ -220,15 +257,11 @@ export default function CameraScreen({ navigation }: CameraScreenProps) {
 
         const previewErrorMessage = getSubmitReportErrorMessage(error);
         navigation.navigate('ConfirmReportScreen', {
-          photoUri: optimizedPhoto.uri,
-          gps: {
-            ...gps,
-            capturedAt: new Date().toISOString(),
-            source: 'camera_gps',
-          },
+          photoUri: finalPhotoUri,
+          gps: snapshotGps,
           initialPreviewResult: null,
           initialPreviewError: previewErrorMessage,
-          initialPreviewPhotoUri: optimizedPhoto.uri,
+          initialPreviewPhotoUri: finalPhotoUri,
         });
       }
     } catch (error) {

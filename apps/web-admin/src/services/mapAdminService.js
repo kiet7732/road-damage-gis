@@ -1,10 +1,10 @@
 import { ApiClientError, api, getApiBaseURL } from '../../../../packages/api-client/src';
 
-const DEFAULT_MAP_LIMIT = 1000;
+const DEFAULT_MAP_LIMIT = 1500;
 
 export const DEFAULT_GIS_CENTER = {
-  latitude: 10.7769,
-  longitude: 106.7009,
+  latitude: 10.9805,
+  longitude: 106.6719,
   zoom: 12,
 };
 
@@ -99,6 +99,7 @@ export async function fetchReportClustersGis({
   eps = 0.003,
   minPoints = 2,
   status = '',
+  province = '',
   district = '',
   ward = '',
 } = {}) {
@@ -109,6 +110,9 @@ export async function fetchReportClustersGis({
 
   if (status) {
     params.status = status;
+  }
+  if (province?.trim()) {
+    params.province = province.trim();
   }
   if (district?.trim()) {
     params.district = district.trim();
@@ -148,6 +152,10 @@ export async function fetchAdminReportsGis({
     params.period_days = Number(periodDays);
   }
 
+  if (province?.trim()) {
+    params.province = province.trim();
+  }
+
   if (district?.trim()) {
     params.district = district.trim();
   }
@@ -160,13 +168,11 @@ export async function fetchAdminReportsGis({
     params.road_name = roadName.trim();
   }
 
-  if (!district?.trim() && !ward?.trim() && !roadName?.trim()) {
-    if (bounds?.southWest && bounds?.northEast) {
-      params.min_latitude = bounds.southWest.lat;
-      params.max_latitude = bounds.northEast.lat;
-      params.min_longitude = bounds.southWest.lng;
-      params.max_longitude = bounds.northEast.lng;
-    }
+  if (bounds?.southWest && bounds?.northEast && bounds.isExplicitViewportOnly) {
+    params.min_latitude = bounds.southWest.lat;
+    params.max_latitude = bounds.northEast.lat;
+    params.min_longitude = bounds.southWest.lng;
+    params.max_longitude = bounds.northEast.lng;
   }
 
   const response = await api.get('/admin/gis/reports', { params });

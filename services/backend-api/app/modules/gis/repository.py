@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from typing import Any
@@ -89,6 +90,7 @@ class GisRepository:
         user_id: str | None = None,
         status: str | None = None,
         damage_type: str | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -101,6 +103,7 @@ class GisRepository:
             user_id=user_id,
             status=status,
             damage_type=damage_type,
+            province=province,
             district=district,
             ward=ward,
             road_name=road_name,
@@ -146,6 +149,7 @@ class GisRepository:
         user_id: str | None = None,
         status: str | None = None,
         damage_type: str | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -170,20 +174,46 @@ class GisRepository:
             where_clauses.append(f"{SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION} = ?")
             params.append(normalized_damage_type)
 
+        if province and province.strip():
+            p = province.strip().lower()
+            where_clauses.append("(LOWER(TRIM(COALESCE(reports.province, ''))) = ? OR LOWER(TRIM(COALESCE(reports.province, ''))) LIKE ?)")
+            params.extend([p, f"%{p}%"])
+
         if district and district.strip():
-            d = district.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.district, '')) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ?)")
-            params.extend([d, d.lower()])
+            d = district.strip().lower()
+            clean_d = d
+            for prefix in ["thành phố ", "thị xã ", "quận ", "huyện "]:
+                if clean_d.startswith(prefix):
+                    clean_d = clean_d[len(prefix):].strip()
+                    break
+            where_clauses.append(
+                "(LOWER(TRIM(COALESCE(reports.district, ''))) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) LIKE ?)"
+            )
+            params.extend([d, clean_d, f"%{clean_d}%"])
 
         if ward and ward.strip():
-            w = ward.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.ward, '')) = ? OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ?)")
-            params.extend([w, w.lower()])
+            w = ward.strip().lower()
+            clean_w = w
+            for prefix in ["phường ", "xã ", "thị trấn "]:
+                if clean_w.startswith(prefix):
+                    clean_w = clean_w[len(prefix):].strip()
+                    break
+            where_clauses.append(
+                "(LOWER(TRIM(COALESCE(reports.ward, ''))) = ? OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ? OR LOWER(TRIM(COALESCE(reports.ward, ''))) LIKE ?)"
+            )
+            params.extend([w, clean_w, f"%{clean_w}%"])
 
         if road_name and road_name.strip():
-            r = road_name.strip()
-            where_clauses.append("(TRIM(COALESCE(reports.road_name, '')) = ? OR LOWER(TRIM(COALESCE(reports.road_name, ''))) = ?)")
-            params.extend([r, r.lower()])
+            r = road_name.strip().lower()
+            clean_r = r
+            for prefix in ["đường ", "đại lộ ", "quốc lộ ", "hẻm "]:
+                if clean_r.startswith(prefix):
+                    clean_r = clean_r[len(prefix):].strip()
+                    break
+            where_clauses.append(
+                "(LOWER(COALESCE(reports.road_name, '')) LIKE ? OR LOWER(COALESCE(reports.road_name, '')) LIKE ? OR LOWER(COALESCE(reports.formatted_address, '')) LIKE ?)"
+            )
+            params.extend([f"%{r}%", f"%{clean_r}%", f"%{clean_r}%"])
 
         if exclude_repaired:
             where_clauses.append(f"{SQL_STATUS_EXPRESSION} <> 'repaired'")
@@ -430,7 +460,11 @@ class GisRepository:
         rows = self.connection.execute(
             f"""
             SELECT
-                COALESCE(NULLIF(TRIM(province), ''), 'Thành phố Hồ Chí Minh') AS province,
+                CASE
+                    WHEN TRIM(COALESCE(province, '')) <> '' THEN TRIM(province)
+                    WHEN TRIM(COALESCE(district, '')) IN ('Thủ Dầu Một', 'Thuận An', 'Dĩ An', 'Bến Cát', 'Tân Uyên', 'Bắc Tân Uyên', 'Bàu Bàng', 'Phú Giáo', 'Dầu Tiếng', 'Thành phố Thủ Dầu Một', 'Thành phố Thuận An', 'Thành phố Dĩ An', 'Thị xã Bến Cát', 'Thành phố Tân Uyên') THEN 'Bình Dương'
+                    ELSE 'TP. Hồ Chí Minh'
+                END AS province,
                 TRIM(district) AS district,
                 TRIM(ward) AS ward,
                 TRIM(road_name) AS road_name,
@@ -493,6 +527,7 @@ class GisRepository:
         eps: float = 0.001,
         min_points: int = 5,
         status: str | None = None,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
     ) -> list[GisReportClusterItem]:
@@ -507,6 +542,7 @@ class GisRepository:
                     ST_ClusterDBSCAN(geom, eps := ?, minpoints := ?) OVER () AS cluster_id
                 FROM reports
                 WHERE (?::varchar IS NULL OR status = ?)
+                  AND (?::varchar IS NULL OR province ILIKE '%' || ? || '%')
                   AND (?::varchar IS NULL OR district = ?)
                   AND (?::varchar IS NULL OR ward = ?)
             )
@@ -520,12 +556,19 @@ class GisRepository:
                     'latitude', ST_Y(geom),
                     'longitude', ST_X(geom),
                     'damage_type', effective_damage_type
-                )) FILTER (WHERE cluster_id IS NULL) AS noise_points
+                )) FILTER (WHERE cluster_id IS NULL) AS noise_points,
+                json_agg(json_build_object(
+                    'id', id,
+                    'status', status,
+                    'latitude', ST_Y(geom),
+                    'longitude', ST_X(geom),
+                    'damage_type', effective_damage_type
+                )) FILTER (WHERE cluster_id IS NOT NULL) AS cluster_items
             FROM clustered_points
             GROUP BY cluster_id
             ORDER BY count DESC;
             """
-            params = (eps, min_points, status, status, district, district, ward, ward)
+            params = (eps, min_points, status, status, province, province, district, district, ward, ward)
             rows = self.connection.execute(sql, params).fetchall()
 
             results: list[GisReportClusterItem] = []
@@ -533,6 +576,7 @@ class GisRepository:
                 cid = row["cluster_id"]
                 centroid = row["centroid_geojson"]
                 noise = row["noise_points"]
+                cluster_items = row["cluster_items"] if "cluster_items" in row else None
 
                 if isinstance(centroid, str):
                     try:
@@ -542,6 +586,11 @@ class GisRepository:
                 if isinstance(noise, str):
                     try:
                         noise = json.loads(noise)
+                    except Exception:
+                        pass
+                if isinstance(cluster_items, str):
+                    try:
+                        cluster_items = json.loads(cluster_items)
                     except Exception:
                         pass
 
@@ -561,6 +610,7 @@ class GisRepository:
                         center_latitude=center_lat,
                         center_longitude=center_lon,
                         noise_points=noise,
+                        items=cluster_items,
                     )
                 )
             return results
@@ -573,12 +623,27 @@ class GisRepository:
             if status:
                 where_clauses.append("reports.status = ?")
                 params.append(status)
-            if district:
-                where_clauses.append("reports.district = ?")
-                params.append(district)
-            if ward:
-                where_clauses.append("reports.ward = ?")
-                params.append(ward)
+            if province and province.strip():
+                where_clauses.append("LOWER(TRIM(COALESCE(reports.province, ''))) LIKE ?")
+                params.append(f"%{province.strip().lower()}%")
+            if district and district.strip():
+                d = district.strip()
+                stripped_d = re.sub(r"^(thành phố|thị xã|quận|huyện)\s+", "", d, flags=re.IGNORECASE).strip()
+                where_clauses.append(
+                    "(TRIM(COALESCE(reports.district, '')) = ? "
+                    "OR LOWER(TRIM(COALESCE(reports.district, ''))) = ? "
+                    "OR LOWER(TRIM(COALESCE(reports.district, ''))) LIKE ?)"
+                )
+                params.extend([d, d.lower(), f"%{stripped_d.lower()}%"])
+            if ward and ward.strip():
+                w = ward.strip()
+                stripped_w = re.sub(r"^(phường|xã|thị trấn)\s+", "", w, flags=re.IGNORECASE).strip()
+                where_clauses.append(
+                    "(TRIM(COALESCE(reports.ward, '')) = ? "
+                    "OR LOWER(TRIM(COALESCE(reports.ward, ''))) = ? "
+                    "OR LOWER(TRIM(COALESCE(reports.ward, ''))) LIKE ?)"
+                )
+                params.extend([w, w.lower(), f"%{stripped_w.lower()}%"])
 
             where_sql = f"WHERE {' AND '.join(where_clauses)}"
             sql = f"""
@@ -656,6 +721,16 @@ class GisRepository:
                         center_latitude=round(mean_lat, 6),
                         center_longitude=round(mean_lon, 6),
                         noise_points=None,
+                        items=[
+                            {
+                                "id": p["id"],
+                                "status": p["status"],
+                                "latitude": float(p["latitude"]),
+                                "longitude": float(p["longitude"]),
+                                "damage_type": p["effective_damage_type"],
+                            }
+                            for p in c_points
+                        ],
                     )
                 )
 

@@ -44,6 +44,7 @@ export async function fetchAdminReports({
   damageType = '',
   search = '',
   aiStatus = '',
+  hasDamageDetected,
   province = '',
   district = '',
   ward = '',
@@ -75,6 +76,10 @@ export async function fetchAdminReports({
 
   if (aiStatus?.trim()) {
     params.ai_status = aiStatus.trim();
+  }
+
+  if (typeof hasDamageDetected === 'boolean') {
+    params.has_damage_detected = hasDamageDetected;
   }
 
   if (district?.trim()) {
@@ -352,4 +357,10 @@ export function getReportImageUrl(imageUrl) {
   const apiOrigin = apiBaseUrl.replace(/\/api\/?$/, '');
 
   return `${apiOrigin}${imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`}`;
+}
+
+export async function approveReportForSurvey(reportId, note = '') {
+  const payload = note?.trim() ? { admin_note: note.trim() } : {};
+  const response = await api.post(`/admin/reports/${reportId}/approve-for-survey`, payload);
+  return response?.data || response;
 }
