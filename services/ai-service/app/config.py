@@ -7,7 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = Path(__file__).resolve().parents[3]
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    REPO_ROOT = BASE_DIR
 ROOT_ENV_FILE = REPO_ROOT / ".env"
 SERVICE_ENV_FILE = BASE_DIR / ".env"
 
