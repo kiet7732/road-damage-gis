@@ -345,6 +345,19 @@ def seed_database():
         field_note = None
         admin_note = None
 
+        sorted_confs = sorted((float(d.get("confidence", 0.0)) for d in detections), reverse=True)
+        s_priority = sum(sorted_confs[:2])
+        if not sorted_confs or s_priority <= 0:
+            computed_priority_level = None
+        elif s_priority >= 1.6:
+            computed_priority_level = "level_1"
+        elif s_priority >= 1.2:
+            computed_priority_level = "level_2"
+        elif s_priority >= 0.8:
+            computed_priority_level = "level_3"
+        else:
+            computed_priority_level = "level_4"
+
         if status == "processing":
             assigned_engineer_id = "seed-user-engineer_a" if idx % 2 == 0 else "seed-user-engineer_b"
             claimed_by_engineer_id = assigned_engineer_id
@@ -356,7 +369,7 @@ def seed_database():
                 survey_completed_at = (created_dt + timedelta(hours=3)).isoformat()
                 field_verified_damage_type = primary_damage_type
                 field_severity = "high" if primary_damage_type == "D40" else "medium"
-                field_priority = "high"
+                field_priority = computed_priority_level
                 field_note = f"Đã có mặt tại hiện trường đường {loc['road']}. Hư hỏng đúng mô tả AI ({primary_damage_type})."
         elif status == "repaired":
             assigned_engineer_id = "seed-user-engineer_a"
@@ -367,7 +380,7 @@ def seed_database():
             survey_completed_at = (created_dt + timedelta(hours=24)).isoformat()
             field_verified_damage_type = primary_damage_type
             field_severity = "high"
-            field_priority = "urgent"
+            field_priority = computed_priority_level
             field_note = "Đơn vị duy tu đã thi công trải thảm nhựa nóng hoàn tất. Nghiệm thu đạt chuẩn."
             admin_note = "Đã xác nhận biên bản hoàn thành thi công."
         elif status == "rejected":

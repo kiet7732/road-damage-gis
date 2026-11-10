@@ -377,10 +377,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                 rep
                 for rep in all_reports
                 if rep.priority_assessment
-                and (
-                    rep.priority_assessment.effective_level_code == normalized_priority
-                    or rep.priority_assessment.level_code == normalized_priority
-                )
+                and rep.priority_assessment.effective_level_code == normalized_priority
             ]
             return filtered_reports[offset : offset + limit], len(filtered_reports)
 
