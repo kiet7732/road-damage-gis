@@ -30,6 +30,20 @@ from app.modules.reports.schemas import (
 class ReportEngineerMixin:
     """Field engineer assignment, claims, check-in, survey, and timeline operations."""
 
+    def _sql_survey_eligible_clause(self, table_prefix: str = "reports.") -> str:
+        if getattr(self, "settings", None) and self.settings.gis_backend == "postgis":
+            detections_count_expr = f"COALESCE(({table_prefix}detections_json->>'detections_count')::int, 1) > 0"
+        else:
+            detections_count_expr = f"COALESCE(CAST(json_extract({table_prefix}detections_json, '$.detections_count') AS INTEGER), 1) > 0"
+
+        return f"""(
+            COALESCE({table_prefix}admin_approved_for_survey, 0) = 1
+            OR (
+                COALESCE({table_prefix}ai_status, '') != 'no_damage_detected'
+                AND {detections_count_expr}
+            )
+        )"""
+
     def list_engineer_reports(
         self,
         *,
@@ -40,13 +54,7 @@ class ReportEngineerMixin:
     ) -> tuple[list[EngineerReportResponse], int]:
         self.expire_stale_claims(updated_at=datetime.now(timezone.utc).isoformat())
         where_clauses = [
-            """(
-                COALESCE(reports.admin_approved_for_survey, 0) = 1
-                OR (
-                    COALESCE(reports.ai_status, '') != 'no_damage_detected'
-                    AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
-                )
-            )"""
+            self._sql_survey_eligible_clause("reports.")
         ]
         params: list[object] = []
         normalized_scope = scope.strip().lower()
@@ -116,13 +124,7 @@ class ReportEngineerMixin:
             f"""
             {self._engineer_report_select_sql()}
             WHERE reports.id = ?
-              AND (
-                  COALESCE(reports.admin_approved_for_survey, 0) = 1
-                  OR (
-                      COALESCE(reports.ai_status, '') != 'no_damage_detected'
-                      AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
-                  )
-              )
+              AND {self._sql_survey_eligible_clause("reports.")}
             LIMIT 1
             """,
             (report_id,),
@@ -195,7 +197,7 @@ class ReportEngineerMixin:
         self.expire_stale_claims(updated_at=updated_at)
         claim_expires_at = (datetime.fromisoformat(updated_at.replace("Z", "+00:00")) + AUTO_RELEASE_WINDOW).isoformat()
         cursor = self.connection.execute(
-            """
+            f"""
             UPDATE reports
             SET claimed_by_engineer_id = ?,
                 claimed_at = ?,
@@ -214,13 +216,7 @@ class ReportEngineerMixin:
                   assigned_engineer_id IS NULL OR
                   assigned_engineer_id = ?
               )
-              AND (
-                  COALESCE(admin_approved_for_survey, 0) = 1
-                  OR (
-                      COALESCE(ai_status, '') != 'no_damage_detected'
-                      AND COALESCE(json_extract(detections_json, '$.detections_count'), 1) > 0
-                  )
-              )
+              AND {self._sql_survey_eligible_clause("")}
             """,
             (
                 engineer_id,

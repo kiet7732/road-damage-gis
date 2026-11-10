@@ -103,7 +103,7 @@ class ReportGisMixin:
                     COALESCE(reports.admin_approved_for_survey, 0) = 1
                     OR (
                         COALESCE(reports.ai_status, '') != 'no_damage_detected'
-                        AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                        AND COALESCE((reports.detections_json->>'detections_count')::int, 1) > 0
                     )
                 )"""
             )
@@ -170,7 +170,7 @@ class ReportGisMixin:
                     COALESCE(reports.admin_approved_for_survey, 0) = 1
                     OR (
                         COALESCE(reports.ai_status, '') != 'no_damage_detected'
-                        AND COALESCE(json_extract(reports.detections_json, '$.detections_count'), 1) > 0
+                        AND COALESCE(CAST(json_extract(reports.detections_json, '$.detections_count') AS INTEGER), 1) > 0
                     )
                 )"""
             )

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS reports (
     admin_note TEXT,
     corrected_damage_type VARCHAR(16),
     is_ai_overridden BOOLEAN DEFAULT FALSE,
+    admin_approved_for_survey INTEGER DEFAULT 1,
     road_name VARCHAR(255),
     ward VARCHAR(128),
     district VARCHAR(128),
@@ -136,7 +137,8 @@ CREATE INDEX IF NOT EXISTS idx_reports_field_status ON reports(field_status);
 CREATE INDEX IF NOT EXISTS idx_reports_assigned_engineer ON reports(assigned_engineer_id);
 CREATE INDEX IF NOT EXISTS idx_reports_claimed_engineer ON reports(claimed_by_engineer_id);
 
--- 8. Cột phát sinh (Stored Generated Columns) hỗ trợ tương thích ngược
+-- 8. Cột phát sinh (Stored Generated Columns) & Bổ sung cột hỗ trợ tương thích ngược
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS admin_approved_for_survey INTEGER DEFAULT 1;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS latitude REAL GENERATED ALWAYS AS (ST_Y(geom)) STORED;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS longitude REAL GENERATED ALWAYS AS (ST_X(geom)) STORED;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS field_checked_in_latitude REAL GENERATED ALWAYS AS (ST_Y(field_checked_in_geom)) STORED;
@@ -152,6 +154,8 @@ BEGIN
         RETURN doc->''detections''->0->>''damage_type'';
     ELSIF path_expr = ''$.detections[0].confidence'' THEN
         RETURN doc->''detections''->0->>''confidence'';
+    ELSIF path_expr = ''$.detections_count'' THEN
+        RETURN doc->>''detections_count'';
     ELSE
         RETURN NULL;
     END IF;
