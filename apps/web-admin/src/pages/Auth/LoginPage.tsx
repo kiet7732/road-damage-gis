@@ -210,7 +210,21 @@ export default function LoginPage({ isAuthenticated, onLogin }: LoginPageProps) 
               style={styles.demoChip}
               onClick={() => handleFillDemo('admin.demo@roadgis.local', 'Admin@123')}
             >
-              🛡️ Quản trị viên
+              🛡️ Quản trị viên HT
+            </button>
+            <button
+              type="button"
+              style={styles.demoChip}
+              onClick={() => handleFillDemo('province.binhduong@roadgis.local', 'Admin@123')}
+            >
+              🏛️ Cán bộ Bình Dương
+            </button>
+            <button
+              type="button"
+              style={styles.demoChip}
+              onClick={() => handleFillDemo('province.tphcm@roadgis.local', 'Admin@123')}
+            >
+              🏙️ Cán bộ TP.HCM
             </button>
           </div>
         </div>

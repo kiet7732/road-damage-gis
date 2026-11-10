@@ -5,6 +5,22 @@ import { UI_COLORS } from '../../constants/statusColors';
 import { MIN_VISIBLE_ZOOM, VIEWPORT_DEBOUNCE_MS } from '../../utils/mapClusteringUtils';
 
 export function RoadSelectionMapBridge({ isSelecting, onMapClick }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    const container = map.getContainer();
+    if (!container) return;
+    if (isSelecting) {
+      container.style.cursor = 'crosshair';
+    } else {
+      container.style.cursor = '';
+    }
+    return () => {
+      if (container) container.style.cursor = '';
+    };
+  }, [map, isSelecting]);
+
   useMapEvents({
     click(e) {
       if (isSelecting && onMapClick) {

@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-import { memo, useEffect, useMemo, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { GeoJSON, MapContainer, Marker, Polyline, Popup, TileLayer, ZoomControl } from 'react-leaflet';
 import { UI_COLORS } from '../constants/statusColors';
 import { getEffectiveDamageType } from '../utils/reportDamage';
@@ -241,7 +241,7 @@ function WebGisMap({
           ];
 
           return (
-            <div key={restr.id}>
+            <Fragment key={restr.id}>
               <Polyline
                 positions={positions}
                 pathOptions={{
@@ -329,7 +329,7 @@ function WebGisMap({
                   </div>
                 </Popup>
               </Polyline>
-            </div>
+            </Fragment>
           );
         })}
 
