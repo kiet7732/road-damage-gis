@@ -1,8 +1,11 @@
-import { FiFilter, FiRefreshCw, FiMaximize2, FiList, FiXCircle } from 'react-icons/fi';
+import { FiFilter, FiRefreshCw, FiMaximize2, FiList, FiSlash, FiXCircle } from 'react-icons/fi';
 import { UI_COLORS } from '../../constants/statusColors';
 
 export default function MapToolbar({
   onToggleReportList,
+  onToggleRestrictionOverlay,
+  isRestrictionsOverlayOpen = false,
+  restrictionsCount = 0,
   onFitAll,
   canFitResults,
   useServerDBSCAN,
@@ -45,6 +48,25 @@ export default function MapToolbar({
           <FiList size={isCompact ? 13 : 15} />
           <span className="road-toolbar-btn-text">Phản ánh</span>
         </button>
+        {onToggleRestrictionOverlay ? (
+          <button
+            type="button"
+            onClick={onToggleRestrictionOverlay}
+            style={{
+              ...styles.secondaryMapButton,
+              ...(isCompact ? styles.compactButton : {}),
+              ...(isRestrictionsOverlayOpen
+                ? { backgroundColor: '#fee2e2', color: '#b91c1c', borderColor: '#fca5a5', fontWeight: 700 }
+                : {}),
+            }}
+            title="Quản lý và thiết lập các đoạn tuyến đường hạn chế lưu thông / thi công"
+          >
+            <FiSlash size={isCompact ? 13 : 15} />
+            <span className="road-toolbar-btn-text">
+              Hạn chế{restrictionsCount > 0 ? ` (${restrictionsCount})` : ''}
+            </span>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onFitAll}

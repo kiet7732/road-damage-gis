@@ -11,13 +11,19 @@ import {
 } from '../../utils/realtimeEvents';
 import {
   DEFAULT_GIS_CENTER,
+  createRoadRestriction,
+  deleteRoadRestriction,
   fetchAdminReportsGis,
   fetchProvinceBoundaryGis,
   fetchReportClustersGis,
+  fetchRoadRestrictions,
   getMapErrorMessage,
+  updateRoadRestrictionStatus,
 } from '../../services/mapAdminService';
 import AdministrativeFilterBar from '../../components/gis/AdministrativeFilterBar';
 import MapReportListOverlay from '../../components/gis/MapReportListOverlay';
+import RoadRestrictionModal from '../../components/gis/RoadRestrictionModal';
+import RoadRestrictionsOverlay from '../../components/gis/RoadRestrictionsOverlay';
 import MapToolbar from '../../components/gis/MapToolbar';
 import { useAuth } from '../../hooks/useAuth';
 import {
@@ -34,7 +40,7 @@ import {
 
 export default function DamageMapPage() {
   const navigate = useNavigate();
-  const { managedProvince, managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict, isProvinceOfficer } = useAuth();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [adminFilters, setAdminFilters] = useState(() => ({
     province: managedProvince || '',
@@ -48,6 +54,15 @@ export default function DamageMapPage() {
   const [fitResultsNonce, setFitResultsNonce] = useState(1);
   const [fitBoundsRequest, setFitBoundsRequest] = useState(null);
   const [isReportListOpen, setIsReportListOpen] = useState(false);
+
+  // Tuyến đường hạn chế lưu thông (Road restrictions & Start/End Selection)
+  const [roadRestrictions, setRoadRestrictions] = useState([]);
+  const [isRestrictionsOverlayOpen, setIsRestrictionsOverlayOpen] = useState(false);
+  const [isSelectingRoad, setIsSelectingRoad] = useState(false);
+  const [startPoint, setStartPoint] = useState(null);
+  const [endPoint, setEndPoint] = useState(null);
+  const [isRestrictionModalOpen, setIsRestrictionModalOpen] = useState(false);
+  const [loadingRestrictions, setLoadingRestrictions] = useState(false);
   const [layoutMode, setLayoutMode] = useState(() => {
     if (typeof window === 'undefined') {
       return 'desktop';
@@ -250,6 +265,97 @@ export default function DamageMapPage() {
       isCancelled = true;
     };
   }, [useServerDBSCAN, filters.status, adminFilters.province, adminFilters.district, adminFilters.ward]);
+
+  // Tải danh sách các đoạn tuyến đường hạn chế lưu thông
+  const loadRoadRestrictions = useCallback(async () => {
+    try {
+      setLoadingRestrictions(true);
+      const res = await fetchRoadRestrictions({
+        province: adminFilters.province || managedProvince || undefined,
+      });
+      setRoadRestrictions(res.items || []);
+    } catch (e) {
+      console.error('Failed to load road restrictions:', e);
+    } finally {
+      setLoadingRestrictions(false);
+    }
+  }, [adminFilters.province, managedProvince]);
+
+  useEffect(() => {
+    void loadRoadRestrictions();
+  }, [loadRoadRestrictions]);
+
+  // Các thao tác chọn điểm và thiết lập hạn chế đường
+  const handleStartCreateRestriction = useCallback(() => {
+    setIsSelectingRoad(true);
+    setStartPoint(null);
+    setEndPoint(null);
+    setIsRestrictionsOverlayOpen(false);
+  }, []);
+
+  const handleCancelRoadSelection = useCallback(() => {
+    setIsSelectingRoad(false);
+    setStartPoint(null);
+    setEndPoint(null);
+  }, []);
+
+  const handleRoadPointSelected = useCallback((latlng) => {
+    if (!startPoint) {
+      setStartPoint(latlng);
+    } else {
+      setEndPoint(latlng);
+      setIsSelectingRoad(false);
+      setIsRestrictionModalOpen(true);
+    }
+  }, [startPoint]);
+
+  const handleSaveRestriction = useCallback(async (payload) => {
+    await createRoadRestriction(payload);
+    await loadRoadRestrictions();
+    setStartPoint(null);
+    setEndPoint(null);
+    setIsRestrictionModalOpen(false);
+  }, [loadRoadRestrictions]);
+
+  const handleToggleRestrictionStatus = useCallback(async (id, nextStatus) => {
+    try {
+      await updateRoadRestrictionStatus(id, nextStatus);
+      setRoadRestrictions((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, is_active: nextStatus } : r))
+      );
+    } catch (e) {
+      console.error('Failed to update road restriction status:', e);
+    }
+  }, []);
+
+  const handleDeleteRestriction = useCallback(async (id) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa đoạn đường hạn chế này không?')) {
+      return;
+    }
+    try {
+      await deleteRoadRestriction(id);
+      setRoadRestrictions((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      console.error('Failed to delete road restriction:', e);
+    }
+  }, []);
+
+  const handleSelectRestrictionOnMap = useCallback((item) => {
+    if (!item?.start_latitude || !item?.end_latitude) return;
+    const minLat = Math.min(item.start_latitude, item.end_latitude);
+    const maxLat = Math.max(item.start_latitude, item.end_latitude);
+    const minLng = Math.min(item.start_longitude, item.end_longitude);
+    const maxLng = Math.max(item.start_longitude, item.end_longitude);
+    const pad = 0.008;
+
+    setFitBoundsRequest({
+      bounds: {
+        southWest: { lat: minLat - pad, lng: minLng - pad },
+        northEast: { lat: maxLat + pad, lng: maxLng + pad },
+      },
+      nonce: Date.now(),
+    });
+  }, []);
 
   const selectedReportDetail = useMemo(() => {
     if (!selectedReport?.id) {
@@ -558,7 +664,13 @@ export default function DamageMapPage() {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        if (selectedReport) {
+        if (isSelectingRoad) {
+          handleCancelRoadSelection();
+        } else if (isRestrictionModalOpen) {
+          setIsRestrictionModalOpen(false);
+        } else if (isRestrictionsOverlayOpen) {
+          setIsRestrictionsOverlayOpen(false);
+        } else if (selectedReport) {
           setSelectedReport(null);
         } else if (isReportListOpen) {
           setIsReportListOpen(false);
@@ -570,7 +682,15 @@ export default function DamageMapPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMapPanelOpen, isReportListOpen, selectedReport]);
+  }, [
+    isMapPanelOpen,
+    isReportListOpen,
+    selectedReport,
+    isSelectingRoad,
+    isRestrictionModalOpen,
+    isRestrictionsOverlayOpen,
+    handleCancelRoadSelection,
+  ]);
 
   return (
     <section style={styles.page}>
@@ -595,8 +715,16 @@ export default function DamageMapPage() {
               <MapToolbar
                 onToggleReportList={() => {
                   setIsReportListOpen((value) => !value);
+                  setIsRestrictionsOverlayOpen(false);
                   setIsMapPanelOpen(false);
                 }}
+                onToggleRestrictionOverlay={() => {
+                  setIsRestrictionsOverlayOpen((value) => !value);
+                  setIsReportListOpen(false);
+                  setIsMapPanelOpen(false);
+                }}
+                isRestrictionsOverlayOpen={isRestrictionsOverlayOpen}
+                restrictionsCount={roadRestrictions.filter((r) => r.is_active).length}
                 onFitAll={() => {
                   if (canFitResults) {
                     setFitBoundsRequest({ bounds: resultBounds, nonce: Date.now() });
@@ -610,6 +738,7 @@ export default function DamageMapPage() {
                   if (isCompactMapLayout) {
                     setIsMapPanelOpen((value) => !value);
                     setIsReportListOpen(false);
+                    setIsRestrictionsOverlayOpen(false);
                   } else {
                     setIsSidebarOpen((value) => !value);
                   }
@@ -652,6 +781,14 @@ export default function DamageMapPage() {
             onCloseDetail={() => {
               setSelectedReport(null);
             }}
+            roadRestrictions={roadRestrictions}
+            isSelectingRoad={isSelectingRoad}
+            startPoint={startPoint}
+            endPoint={endPoint}
+            onRoadPointSelected={handleRoadPointSelected}
+            onCancelRoadSelection={handleCancelRoadSelection}
+            onToggleRestrictionStatus={handleToggleRestrictionStatus}
+            onDeleteRestriction={handleDeleteRestriction}
           />
 
           <MapReportListOverlay
@@ -661,6 +798,31 @@ export default function DamageMapPage() {
             mapItems={mapItems}
             activeSelectedReport={activeSelectedReport}
             onFocusReport={focusReportOnMap}
+          />
+
+          <RoadRestrictionsOverlay
+            isOpen={isRestrictionsOverlayOpen}
+            onClose={() => setIsRestrictionsOverlayOpen(false)}
+            restrictions={roadRestrictions}
+            loading={loadingRestrictions}
+            onSelectRestriction={handleSelectRestrictionOnMap}
+            onToggleStatus={handleToggleRestrictionStatus}
+            onDeleteRestriction={handleDeleteRestriction}
+            onStartCreateRestriction={handleStartCreateRestriction}
+          />
+
+          <RoadRestrictionModal
+            isOpen={isRestrictionModalOpen}
+            onClose={() => {
+              setIsRestrictionModalOpen(false);
+              setStartPoint(null);
+              setEndPoint(null);
+            }}
+            startPoint={startPoint}
+            endPoint={endPoint}
+            defaultProvince={managedProvince || adminFilters.province || 'Bình Dương'}
+            isProvinceOfficer={isProvinceOfficer}
+            onSave={handleSaveRestriction}
           />
         </div>
 

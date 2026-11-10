@@ -229,3 +229,36 @@ export function getMapImageUrl(imageUrl) {
 
   return `${apiOrigin}${imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`}`;
 }
+
+export async function fetchRoadRestrictions(params = {}) {
+  const query = {};
+  if (params.province) query.province = params.province;
+  if (params.district) query.district = params.district;
+  if (typeof params.isActive === 'boolean') query.is_active = params.isActive;
+  if (params.restrictionType) query.restriction_type = params.restrictionType;
+
+  const response = await api.get('/gis/road-restrictions', { query });
+  return {
+    total: response?.total || 0,
+    items: Array.isArray(response?.items) ? response.items : [],
+  };
+}
+
+export async function createRoadRestriction(payload) {
+  return await api.post('/gis/road-restrictions', payload);
+}
+
+export async function updateRoadRestriction(restrictionId, payload) {
+  return await api.put(`/gis/road-restrictions/${restrictionId}`, payload);
+}
+
+export async function updateRoadRestrictionStatus(restrictionId, isActive) {
+  return await api.patch(`/gis/road-restrictions/${restrictionId}/status`, {
+    is_active: Boolean(isActive),
+  });
+}
+
+export async function deleteRoadRestriction(restrictionId) {
+  return await api.delete(`/gis/road-restrictions/${restrictionId}`);
+}
+

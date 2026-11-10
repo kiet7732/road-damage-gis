@@ -4,7 +4,22 @@ import { FiCompass } from 'react-icons/fi';
 import { UI_COLORS } from '../../constants/statusColors';
 import { MIN_VISIBLE_ZOOM, VIEWPORT_DEBOUNCE_MS } from '../../utils/mapClusteringUtils';
 
+export function RoadSelectionMapBridge({ isSelecting, onMapClick }) {
+  useMapEvents({
+    click(e) {
+      if (isSelecting && onMapClick) {
+        onMapClick({
+          latitude: e.latlng.lat,
+          longitude: e.latlng.lng,
+        });
+      }
+    },
+  });
+  return null;
+}
+
 export function MapViewportBridge({ center, zoom, onViewportChange, onZoomChange }) {
+
   const map = useMap();
   const initializedRef = useRef(false);
   const debounceTimerRef = useRef(null);

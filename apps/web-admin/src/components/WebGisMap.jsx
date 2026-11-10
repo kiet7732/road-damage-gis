@@ -1,7 +1,8 @@
 import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 
 import { memo, useEffect, useMemo, useState } from 'react';
-import { GeoJSON, MapContainer, Marker, TileLayer, ZoomControl } from 'react-leaflet';
+import { GeoJSON, MapContainer, Marker, Polyline, Popup, TileLayer, ZoomControl } from 'react-leaflet';
 import { UI_COLORS } from '../constants/statusColors';
 import { getEffectiveDamageType } from '../utils/reportDamage';
 import {
@@ -12,9 +13,58 @@ import {
   buildScreenClusters,
   createPointIcon,
 } from '../utils/mapClusteringUtils';
-import { MapViewportBridge, MapFocusBridge, ZoomLevelIndicator } from './gis/MapBridges';
+import {
+  MapViewportBridge,
+  MapFocusBridge,
+  ZoomLevelIndicator,
+  RoadSelectionMapBridge,
+} from './gis/MapBridges';
 import ClusterMarker from './gis/ClusterMarker';
 import MapDetailCard from './gis/MapDetailCard';
+
+const POINT_A_ICON = L.divIcon({
+  className: 'road-start-point-marker',
+  html: `
+    <div style="
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #16A34A;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+      border: 2.5px solid #ffffff;
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.5);
+    ">A</div>
+  `,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
+
+const POINT_B_ICON = L.divIcon({
+  className: 'road-end-point-marker',
+  html: `
+    <div style="
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #DC2626;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+      border: 2.5px solid #ffffff;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+    ">B</div>
+  `,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
 
 const PROVINCE_BOUNDARY_OUTER_STYLE = {
   color: '#3B82F6',
@@ -53,6 +103,14 @@ function WebGisMap({
   selectedReport = null,
   focusTarget = null,
   fitBoundsTarget = null,
+  roadRestrictions = [],
+  isSelectingRoad = false,
+  startPoint = null,
+  endPoint = null,
+  onRoadPointSelected = null,
+  onCancelRoadSelection = null,
+  onToggleRestrictionStatus = null,
+  onDeleteRestriction = null,
 }) {
   const safeItems = Array.isArray(items) ? items : [];
   const [activeZoom, setActiveZoom] = useState(zoom);
@@ -141,6 +199,139 @@ function WebGisMap({
         />
         <MapFocusBridge focusTarget={focusTarget} fitBoundsTarget={fitBoundsTarget} />
         <ZoomLevelIndicator activeZoom={activeZoom} totalCount={safeItems.length} />
+        <RoadSelectionMapBridge isSelecting={isSelectingRoad} onMapClick={onRoadPointSelected} />
+
+        {startPoint ? (
+          <Marker
+            position={[startPoint.latitude, startPoint.longitude]}
+            icon={POINT_A_ICON}
+          />
+        ) : null}
+
+        {endPoint ? (
+          <Marker
+            position={[endPoint.latitude, endPoint.longitude]}
+            icon={POINT_B_ICON}
+          />
+        ) : null}
+
+        {startPoint && endPoint ? (
+          <Polyline
+            positions={[
+              [startPoint.latitude, startPoint.longitude],
+              [endPoint.latitude, endPoint.longitude],
+            ]}
+            pathOptions={{
+              color: '#DC2626',
+              weight: 5,
+              dashArray: '8, 8',
+              opacity: 0.9,
+            }}
+          />
+        ) : null}
+
+        {roadRestrictions.map((restr) => {
+          const isDanger = restr.severity === 'danger';
+          const isInfo = restr.severity === 'info';
+          const outerColor = !restr.is_active ? '#94A3B8' : isDanger ? '#EF4444' : isInfo ? '#3B82F6' : '#F59E0B';
+          const innerColor = !restr.is_active ? '#64748B' : isDanger ? '#DC2626' : isInfo ? '#1D4ED8' : '#D97706';
+          const positions = [
+            [restr.start_latitude, restr.start_longitude],
+            [restr.end_latitude, restr.end_longitude],
+          ];
+
+          return (
+            <div key={restr.id}>
+              <Polyline
+                positions={positions}
+                pathOptions={{
+                  color: outerColor,
+                  weight: 12,
+                  opacity: 0.35,
+                }}
+              />
+              <Polyline
+                positions={positions}
+                pathOptions={{
+                  color: innerColor,
+                  weight: 6,
+                  dashArray: restr.is_active ? '10, 8' : '4, 4',
+                  opacity: restr.is_active ? 0.95 : 0.5,
+                }}
+              >
+                <Popup>
+                  <div style={{ minWidth: 220, padding: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          backgroundColor: restr.is_active ? '#FEE2E2' : '#F1F5F9',
+                          color: restr.is_active ? '#B91C1C' : '#64748B',
+                        }}
+                      >
+                        {restr.is_active ? '⛔ Hạn chế lưu thông' : '○ Đã gỡ bỏ'}
+                      </span>
+                    </div>
+                    <strong style={{ fontSize: 14, color: '#0F172A', display: 'block', marginBottom: 2 }}>
+                      {restr.road_name}
+                    </strong>
+                    <div style={{ fontSize: 11.5, color: '#64748B', marginBottom: 6 }}>
+                      {[restr.ward, restr.district, restr.province].filter(Boolean).join(', ')}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#334155', marginBottom: 6, lineHeight: 1.4 }}>
+                      <strong>Lý do:</strong> {restr.reason}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginBottom: 8 }}>
+                      Từ: {restr.start_date ? new Date(restr.start_date).toLocaleDateString('vi-VN') : ''}
+                      {restr.end_date ? ` - Đến: ${new Date(restr.end_date).toLocaleDateString('vi-VN')}` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, paddingTop: 6, borderTop: '1px solid #E2E8F0' }}>
+                      {onToggleRestrictionStatus ? (
+                        <button
+                          type="button"
+                          onClick={() => onToggleRestrictionStatus(restr.id, !restr.is_active)}
+                          style={{
+                            flex: 1,
+                            padding: '5px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #CBD5E1',
+                            backgroundColor: restr.is_active ? '#FEF2F2' : '#F0FDF4',
+                            color: restr.is_active ? '#DC2626' : '#16A34A',
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {restr.is_active ? 'Gỡ bỏ' : 'Bật lại'}
+                        </button>
+                      ) : null}
+                      {onDeleteRestriction ? (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteRestriction(restr.id)}
+                          style={{
+                            padding: '5px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #E2E8F0',
+                            backgroundColor: '#F8FAFC',
+                            color: '#64748B',
+                            fontSize: 11.5,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Xóa
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </Popup>
+              </Polyline>
+            </div>
+          );
+        })}
 
         {provinceBoundary && Array.isArray(provinceBoundary.features) && provinceBoundary.features.length > 0 ? (
           <>
@@ -241,6 +432,28 @@ function WebGisMap({
               title="Căn chỉnh bản đồ bao quát toàn bộ ranh giới vùng quản lý"
             >
               Căn toàn vùng
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {isSelectingRoad ? (
+        <div style={styles.selectionBanner}>
+          <div style={styles.selectionBannerCopy}>
+            <span style={styles.selectionDot} />
+            <strong style={styles.selectionTitle}>
+              {!startPoint
+                ? '📍 Bước 1: Nhấp trên bản đồ để chọn Điểm bắt đầu (🟢 Điểm A)'
+                : '📍 Bước 2: Nhấp trên bản đồ để chọn Điểm kết thúc (🔴 Điểm B)'}
+            </strong>
+          </div>
+          {onCancelRoadSelection ? (
+            <button
+              type="button"
+              onClick={onCancelRoadSelection}
+              style={styles.cancelSelectionBtn}
+            >
+              Hủy thao tác
             </button>
           ) : null}
         </div>
@@ -406,5 +619,52 @@ const styles = {
     borderRadius: 999,
     background: UI_COLORS.primary,
     display: 'inline-block',
+  },
+  selectionBanner: {
+    position: 'absolute',
+    top: 20,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 900,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    padding: '10px 18px',
+    borderRadius: 30,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backdropFilter: 'blur(8px)',
+    border: '1.5px solid #DC2626',
+    boxShadow: '0 12px 30px rgba(220, 38, 38, 0.35)',
+    color: '#FFFFFF',
+    animation: 'bounceIn 0.3s ease',
+  },
+  selectionBannerCopy: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  selectionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    backgroundColor: '#EF4444',
+    boxShadow: '0 0 10px #EF4444',
+    animation: 'pulse 1.2s infinite',
+  },
+  selectionTitle: {
+    fontSize: 13.5,
+    fontWeight: 700,
+    letterSpacing: '0.2px',
+  },
+  cancelSelectionBtn: {
+    padding: '5px 12px',
+    borderRadius: 20,
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
   },
 };

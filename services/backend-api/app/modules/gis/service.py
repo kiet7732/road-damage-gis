@@ -1,7 +1,12 @@
+import uuid
 from app.modules.gis.schemas import (
     AdministrativeHierarchyResponse,
     GisReportClusterItem,
     ReportGeoJsonFeatureCollection,
+    RoadRestrictionCreate,
+    RoadRestrictionItem,
+    RoadRestrictionListResponse,
+    RoadRestrictionUpdate,
 )
 from app.modules.gis.repository import GisRepository
 from app.modules.reports.schemas import ReportMapListResponse
@@ -90,4 +95,49 @@ class GisService:
             district=district,
             ward=ward,
         )
+
+    def get_road_restrictions(
+        self,
+        *,
+        province: str | None = None,
+        district: str | None = None,
+        is_active: bool | None = None,
+        restriction_type: str | None = None,
+    ) -> RoadRestrictionListResponse:
+        items = self.repository.get_road_restrictions(
+            province=province,
+            district=district,
+            is_active=is_active,
+            restriction_type=restriction_type,
+        )
+        return RoadRestrictionListResponse(total=len(items), items=items)
+
+    def get_road_restriction_by_id(self, restriction_id: str) -> RoadRestrictionItem | None:
+        return self.repository.get_road_restriction_by_id(restriction_id)
+
+    def create_road_restriction(
+        self,
+        data: RoadRestrictionCreate,
+        user_id: str | None = None,
+    ) -> RoadRestrictionItem:
+        item_id = f"restr-{uuid.uuid4().hex[:12]}"
+        return self.repository.create_road_restriction(item_id=item_id, data=data, user_id=user_id)
+
+    def update_road_restriction(
+        self,
+        restriction_id: str,
+        data: RoadRestrictionUpdate,
+    ) -> RoadRestrictionItem | None:
+        return self.repository.update_road_restriction(restriction_id, data)
+
+    def update_road_restriction_status(
+        self,
+        restriction_id: str,
+        is_active: bool,
+    ) -> RoadRestrictionItem | None:
+        return self.repository.update_road_restriction_status(restriction_id, is_active)
+
+    def delete_road_restriction(self, restriction_id: str) -> bool:
+        return self.repository.delete_road_restriction(restriction_id)
+
 

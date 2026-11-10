@@ -91,3 +91,65 @@ class GisReportClusterItem(BaseModel):
     center_longitude: float | None = None
     noise_points: list[dict[str, Any]] | None = None
     items: list[dict[str, Any]] | None = None
+
+
+class RoadRestrictionCreate(BaseModel):
+    road_name: str
+    province: str
+    district: str | None = None
+    ward: str | None = None
+    start_latitude: float
+    start_longitude: float
+    end_latitude: float
+    end_longitude: float
+    restriction_type: str = "under_maintenance"
+    severity: str = "warning"
+    reason: str
+    start_date: str | None = None
+    end_date: str | None = None
+    is_active: bool = True
+
+
+class RoadRestrictionUpdate(BaseModel):
+    road_name: str | None = None
+    province: str | None = None
+    district: str | None = None
+    ward: str | None = None
+    restriction_type: str | None = None
+    severity: str | None = None
+    reason: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    is_active: bool | None = None
+
+
+class RoadRestrictionStatusUpdate(BaseModel):
+    is_active: bool
+
+
+class RoadRestrictionItem(BaseModel):
+    id: str
+    road_name: str
+    province: str
+    district: str | None = None
+    ward: str | None = None
+    start_latitude: float
+    start_longitude: float
+    end_latitude: float
+    end_longitude: float
+    coordinates: list[tuple[float, float]] = []
+    restriction_type: str
+    severity: str
+    reason: str
+    start_date: str
+    end_date: str | None = None
+    is_active: bool
+    created_by_user_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class RoadRestrictionListResponse(BaseModel):
+    total: int
+    items: list[RoadRestrictionItem]
+

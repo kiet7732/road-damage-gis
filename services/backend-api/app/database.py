@@ -232,6 +232,34 @@ def init_database() -> None:
                 connection.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
             connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_province VARCHAR(128);")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_users_managed_province ON users(managed_province);")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS road_restrictions (
+                    id VARCHAR(64) PRIMARY KEY,
+                    road_name VARCHAR(255) NOT NULL,
+                    province VARCHAR(128) NOT NULL,
+                    district VARCHAR(128),
+                    ward VARCHAR(128),
+                    start_latitude REAL NOT NULL,
+                    start_longitude REAL NOT NULL,
+                    end_latitude REAL NOT NULL,
+                    end_longitude REAL NOT NULL,
+                    geom geometry(LineString, 4326) NOT NULL,
+                    restriction_type VARCHAR(64) NOT NULL DEFAULT 'under_maintenance',
+                    severity VARCHAR(32) NOT NULL DEFAULT 'warning',
+                    reason TEXT NOT NULL,
+                    start_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    end_date TIMESTAMPTZ,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_road_restrictions_geom_gist ON road_restrictions USING GIST(geom);
+                CREATE INDEX IF NOT EXISTS idx_road_restrictions_province ON road_restrictions(province);
+                CREATE INDEX IF NOT EXISTS idx_road_restrictions_active ON road_restrictions(is_active);
+                """
+            )
             connection.commit()
         return
 
@@ -537,6 +565,42 @@ def init_database() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_geocoding_cache_coords
             ON geocoding_cache(latitude, longitude)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS road_restrictions (
+                id TEXT PRIMARY KEY,
+                road_name TEXT NOT NULL,
+                province TEXT NOT NULL,
+                district TEXT,
+                ward TEXT,
+                start_latitude REAL NOT NULL,
+                start_longitude REAL NOT NULL,
+                end_latitude REAL NOT NULL,
+                end_longitude REAL NOT NULL,
+                restriction_type TEXT NOT NULL DEFAULT 'under_maintenance',
+                severity TEXT NOT NULL DEFAULT 'warning',
+                reason TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_by_user_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_road_restrictions_province
+            ON road_restrictions(province)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_road_restrictions_active
+            ON road_restrictions(is_active)
             """
         )
         connection.commit()

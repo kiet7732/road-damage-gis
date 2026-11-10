@@ -21,6 +21,9 @@ from app.modules.gis.schemas import (
     ReportGeoJsonFeature,
     ReportGeoJsonFeatureCollection,
     ReportGeoJsonProperties,
+    RoadRestrictionCreate,
+    RoadRestrictionItem,
+    RoadRestrictionUpdate,
 )
 from app.modules.reports.schemas import ReportMapListResponse, ReportMapPoint
 
@@ -787,4 +790,266 @@ class GisRepository:
 
             results.sort(key=lambda item: item.count, reverse=True)
             return results
+
+    def get_road_restrictions(
+        self,
+        *,
+        province: str | None = None,
+        district: str | None = None,
+        is_active: bool | None = None,
+        restriction_type: str | None = None,
+    ) -> list[RoadRestrictionItem]:
+        where_clauses: list[str] = []
+        params: list[Any] = []
+
+        if province:
+            clause, p_params = build_province_sql_clause(province, table_alias="road_restrictions")
+            where_clauses.append(clause)
+            params.extend(p_params)
+
+        if district:
+            where_clauses.append("road_restrictions.district ILIKE ?")
+            params.append(f"%{district.strip()}%")
+
+        if is_active is not None:
+            if self.settings.gis_backend == "postgis":
+                where_clauses.append("road_restrictions.is_active = ?")
+                params.append(bool(is_active))
+            else:
+                where_clauses.append("road_restrictions.is_active = ?")
+                params.append(1 if is_active else 0)
+
+        if restriction_type:
+            where_clauses.append("road_restrictions.restriction_type = ?")
+            params.append(restriction_type.strip())
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        sql = f"""
+        SELECT
+            id,
+            road_name,
+            province,
+            district,
+            ward,
+            start_latitude,
+            start_longitude,
+            end_latitude,
+            end_longitude,
+            restriction_type,
+            severity,
+            reason,
+            start_date,
+            end_date,
+            is_active,
+            created_by_user_id,
+            created_at,
+            updated_at
+        FROM road_restrictions
+        {where_sql}
+        ORDER BY created_at DESC
+        """
+        rows = self.connection.execute(sql, tuple(params)).fetchall()
+        return [self._row_to_road_restriction(row) for row in rows]
+
+    def get_road_restriction_by_id(self, restriction_id: str) -> RoadRestrictionItem | None:
+        sql = """
+        SELECT
+            id,
+            road_name,
+            province,
+            district,
+            ward,
+            start_latitude,
+            start_longitude,
+            end_latitude,
+            end_longitude,
+            restriction_type,
+            severity,
+            reason,
+            start_date,
+            end_date,
+            is_active,
+            created_by_user_id,
+            created_at,
+            updated_at
+        FROM road_restrictions
+        WHERE id = ?
+        """
+        row = self.connection.execute(sql, (restriction_id,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_road_restriction(row)
+
+    def create_road_restriction(
+        self,
+        item_id: str,
+        data: RoadRestrictionCreate,
+        user_id: str | None = None,
+    ) -> RoadRestrictionItem:
+        now_iso = datetime.utcnow().isoformat()
+        start_date = data.start_date or now_iso
+        end_date = data.end_date
+
+        if self.settings.gis_backend == "postgis":
+            sql = """
+            INSERT INTO road_restrictions (
+                id, road_name, province, district, ward,
+                start_latitude, start_longitude, end_latitude, end_longitude,
+                geom, restriction_type, severity, reason,
+                start_date, end_date, is_active, created_by_user_id,
+                created_at, updated_at
+            ) VALUES (
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ST_SetSRID(ST_MakeLine(ST_MakePoint(?, ?), ST_MakePoint(?, ?)), 4326),
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                NOW(), NOW()
+            )
+            """
+            params = (
+                item_id, data.road_name, data.province, data.district, data.ward,
+                data.start_latitude, data.start_longitude, data.end_latitude, data.end_longitude,
+                data.start_longitude, data.start_latitude, data.end_longitude, data.end_latitude,
+                data.restriction_type, data.severity, data.reason,
+                start_date, end_date, bool(data.is_active), user_id,
+            )
+        else:
+            sql = """
+            INSERT INTO road_restrictions (
+                id, road_name, province, district, ward,
+                start_latitude, start_longitude, end_latitude, end_longitude,
+                restriction_type, severity, reason,
+                start_date, end_date, is_active, created_by_user_id,
+                created_at, updated_at
+            ) VALUES (
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?
+            )
+            """
+            params = (
+                item_id, data.road_name, data.province, data.district, data.ward,
+                data.start_latitude, data.start_longitude, data.end_latitude, data.end_longitude,
+                data.restriction_type, data.severity, data.reason,
+                start_date, end_date, 1 if data.is_active else 0, user_id,
+                now_iso, now_iso,
+            )
+
+        self.connection.execute(sql, params)
+        self.connection.commit()
+        created = self.get_road_restriction_by_id(item_id)
+        if not created:
+            raise RuntimeError(f"Failed to create road restriction {item_id}")
+        return created
+
+    def update_road_restriction(
+        self,
+        restriction_id: str,
+        data: RoadRestrictionUpdate,
+    ) -> RoadRestrictionItem | None:
+        existing = self.get_road_restriction_by_id(restriction_id)
+        if not existing:
+            return None
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if data.road_name is not None:
+            updates.append("road_name = ?")
+            params.append(data.road_name)
+        if data.province is not None:
+            updates.append("province = ?")
+            params.append(data.province)
+        if data.district is not None:
+            updates.append("district = ?")
+            params.append(data.district)
+        if data.ward is not None:
+            updates.append("ward = ?")
+            params.append(data.ward)
+        if data.restriction_type is not None:
+            updates.append("restriction_type = ?")
+            params.append(data.restriction_type)
+        if data.severity is not None:
+            updates.append("severity = ?")
+            params.append(data.severity)
+        if data.reason is not None:
+            updates.append("reason = ?")
+            params.append(data.reason)
+        if data.start_date is not None:
+            updates.append("start_date = ?")
+            params.append(data.start_date)
+        if data.end_date is not None:
+            updates.append("end_date = ?")
+            params.append(data.end_date)
+        if data.is_active is not None:
+            updates.append("is_active = ?")
+            params.append(bool(data.is_active) if self.settings.gis_backend == "postgis" else (1 if data.is_active else 0))
+
+        if self.settings.gis_backend == "postgis":
+            updates.append("updated_at = NOW()")
+        else:
+            updates.append("updated_at = ?")
+            params.append(datetime.utcnow().isoformat())
+
+        params.append(restriction_id)
+        sql = f"UPDATE road_restrictions SET {', '.join(updates)} WHERE id = ?"
+        self.connection.execute(sql, tuple(params))
+        self.connection.commit()
+        return self.get_road_restriction_by_id(restriction_id)
+
+    def update_road_restriction_status(
+        self,
+        restriction_id: str,
+        is_active: bool,
+    ) -> RoadRestrictionItem | None:
+        updates = ["is_active = ?"]
+        params = [bool(is_active) if self.settings.gis_backend == "postgis" else (1 if is_active else 0)]
+        if self.settings.gis_backend == "postgis":
+            updates.append("updated_at = NOW()")
+        else:
+            updates.append("updated_at = ?")
+            params.append(datetime.utcnow().isoformat())
+
+        params.append(restriction_id)
+        sql = f"UPDATE road_restrictions SET {', '.join(updates)} WHERE id = ?"
+        self.connection.execute(sql, tuple(params))
+        self.connection.commit()
+        return self.get_road_restriction_by_id(restriction_id)
+
+    def delete_road_restriction(self, restriction_id: str) -> bool:
+        sql = "DELETE FROM road_restrictions WHERE id = ?"
+        self.connection.execute(sql, (restriction_id,))
+        self.connection.commit()
+        return True
+
+    def _row_to_road_restriction(self, row: Any) -> RoadRestrictionItem:
+        start_lat = float(row["start_latitude"])
+        start_lng = float(row["start_longitude"])
+        end_lat = float(row["end_latitude"])
+        end_lng = float(row["end_longitude"])
+        return RoadRestrictionItem(
+            id=str(row["id"]),
+            road_name=str(row["road_name"]),
+            province=str(row["province"]),
+            district=str(row["district"]) if row["district"] else None,
+            ward=str(row["ward"]) if row["ward"] else None,
+            start_latitude=start_lat,
+            start_longitude=start_lng,
+            end_latitude=end_lat,
+            end_longitude=end_lng,
+            coordinates=[(start_lng, start_lat), (end_lng, end_lat)],
+            restriction_type=str(row["restriction_type"]),
+            severity=str(row["severity"]),
+            reason=str(row["reason"]),
+            start_date=str(row["start_date"]),
+            end_date=str(row["end_date"]) if row["end_date"] else None,
+            is_active=bool(row["is_active"]),
+            created_by_user_id=str(row["created_by_user_id"]) if row["created_by_user_id"] else None,
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+        )
+
 
