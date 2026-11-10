@@ -19,17 +19,26 @@ const PAGE_SIZE = 10;
 export default function ReportsPage({ mode = 'all' }) {
   const navigate = useNavigate();
   const isManualReviewMode = mode === 'manual-review';
-  const { managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict } = useAuth();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
   const [adminFilters, setAdminFilters] = useState(() => ({
-    province: '',
+    province: managedProvince || '',
     district: managedDistrict || '',
     ward: '',
     roadName: '',
   }));
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (managedProvince && adminFilters.province !== managedProvince) {
+      setAdminFilters((current) => ({
+        ...current,
+        province: managedProvince,
+      }));
+    }
+  }, [managedProvince, adminFilters.province]);
 
   useEffect(() => {
     if (managedDistrict && adminFilters.district !== managedDistrict) {
@@ -123,7 +132,7 @@ export default function ReportsPage({ mode = 'all' }) {
     setFilters(DEFAULT_FILTERS);
     setAppliedFilters(DEFAULT_FILTERS);
     setAdminFilters({
-      province: '',
+      province: managedProvince || '',
       district: managedDistrict || '',
       ward: '',
       roadName: '',
@@ -151,6 +160,7 @@ export default function ReportsPage({ mode = 'all' }) {
         filters={adminFilters}
         values={adminFilters}
         onChange={handleAdminFiltersChange}
+        fixedProvince={managedProvince}
         fixedDistrict={managedDistrict}
       />
 

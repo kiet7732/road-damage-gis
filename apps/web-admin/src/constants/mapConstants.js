@@ -22,9 +22,168 @@ export const DISTRICT_CENTERS = {
   'Thành phố Dĩ An': { latitude: 10.9069, longitude: 106.7725, zoom: 14 },
   'Dĩ An': { latitude: 10.9069, longitude: 106.7725, zoom: 14 },
   'Thị xã Bến Cát': { latitude: 11.1352, longitude: 106.6074, zoom: 13 },
+  'Thành phố Bến Cát': { latitude: 11.1352, longitude: 106.6074, zoom: 13 },
   'Bến Cát': { latitude: 11.1352, longitude: 106.6074, zoom: 13 },
   'Thành phố Tân Uyên': { latitude: 11.0664, longitude: 106.7621, zoom: 13 },
   'Tân Uyên': { latitude: 11.0664, longitude: 106.7621, zoom: 13 },
+  'Huyện Bàu Bàng': { latitude: 11.2421, longitude: 106.6345, zoom: 12 },
+  'Huyện Bắc Tân Uyên': { latitude: 11.1512, longitude: 106.8421, zoom: 12 },
+  'Huyện Dầu Tiếng': { latitude: 11.2815, longitude: 106.3652, zoom: 12 },
+  'Huyện Phú Giáo': { latitude: 11.2925, longitude: 106.7982, zoom: 12 },
+};
+
+export const PROVINCE_CENTERS = {
+  'Bình Dương': {
+    latitude: 11.1604,
+    longitude: 106.6719,
+    zoom: 10,
+    bbox: [106.330, 10.865, 106.968, 11.498],
+  },
+  'Tỉnh Bình Dương': {
+    latitude: 11.1604,
+    longitude: 106.6719,
+    zoom: 10,
+    bbox: [106.330, 10.865, 106.968, 11.498],
+  },
+  'TP. Hồ Chí Minh': {
+    latitude: 10.7769,
+    longitude: 106.7009,
+    zoom: 10,
+    bbox: [106.356, 10.376, 107.018, 11.160],
+  },
+  'Thành phố Hồ Chí Minh': {
+    latitude: 10.7769,
+    longitude: 106.7009,
+    zoom: 10,
+    bbox: [106.356, 10.376, 107.018, 11.160],
+  },
+  'Đồng Nai': {
+    latitude: 10.9574,
+    longitude: 106.8427,
+    zoom: 10,
+    bbox: [106.762, 10.582, 107.575, 11.581],
+  },
+  'Bà Rịa - Vũng Tàu': {
+    latitude: 10.5417,
+    longitude: 107.2429,
+    zoom: 10,
+    bbox: [107.018, 10.320, 107.585, 10.805],
+  },
+  'Hà Nội': {
+    latitude: 21.0285,
+    longitude: 105.8542,
+    zoom: 10,
+    bbox: [105.285, 20.564, 106.020, 21.385],
+  },
+  'Đà Nẵng': {
+    latitude: 16.0544,
+    longitude: 108.2022,
+    zoom: 11,
+    bbox: [107.912, 15.918, 108.338, 16.215],
+  },
+  'Cần Thơ': {
+    latitude: 10.0452,
+    longitude: 105.7469,
+    zoom: 10,
+    bbox: [105.375, 9.920, 105.845, 10.325],
+  },
+  'Hải Phòng': {
+    latitude: 20.8449,
+    longitude: 106.6881,
+    zoom: 10,
+    bbox: [106.480, 20.560, 107.080, 21.015],
+  },
+};
+
+export const PROVINCE_BOUNDARIES_FALLBACK = {
+  'Bình Dương': {
+    type: 'FeatureCollection',
+    province: 'Bình Dương',
+    display_name: 'Tỉnh Bình Dương',
+    road_management_authority: 'Sở Xây dựng / Sở GTVT Tỉnh Bình Dương & Khu Quản lý đường bộ IV',
+    center: { latitude: 11.1604, longitude: 106.6719, zoom: 10 },
+    bbox: [106.330, 10.865, 106.968, 11.498],
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          name: 'Bình Dương',
+          display_name: 'Tỉnh Bình Dương',
+          admin_level: 'province',
+          road_authority: 'Sở Xây dựng / Sở GTVT Tỉnh Bình Dương & Khu Quản lý đường bộ IV',
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [106.352, 11.432],
+              [106.445, 11.485],
+              [106.565, 11.498],
+              [106.685, 11.472],
+              [106.825, 11.425],
+              [106.935, 11.345],
+              [106.968, 11.215],
+              [106.942, 11.095],
+              [106.865, 10.998],
+              [106.812, 10.925],
+              [106.792, 10.878],
+              [106.735, 10.865],
+              [106.662, 10.892],
+              [106.615, 10.952],
+              [106.555, 11.028],
+              [106.462, 11.112],
+              [106.365, 11.218],
+              [106.330, 11.325],
+              [106.352, 11.432],
+            ],
+          ],
+        },
+      },
+    ],
+  },
+  'TP. Hồ Chí Minh': {
+    type: 'FeatureCollection',
+    province: 'TP. Hồ Chí Minh',
+    display_name: 'Thành phố Hồ Chí Minh',
+    road_management_authority: 'Sở Giao thông công chánh TP. Hồ Chí Minh & Khu Quản lý đường bộ IV',
+    center: { latitude: 10.7769, longitude: 106.7009, zoom: 10 },
+    bbox: [106.356, 10.376, 107.018, 11.160],
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          name: 'TP. Hồ Chí Minh',
+          display_name: 'Thành phố Hồ Chí Minh',
+          admin_level: 'province',
+          road_authority: 'Sở Giao thông công chánh TP. Hồ Chí Minh & Khu Quản lý đường bộ IV',
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [106.356, 11.160],
+              [106.482, 11.142],
+              [106.588, 11.055],
+              [106.662, 10.892],
+              [106.768, 10.885],
+              [106.855, 10.895],
+              [106.892, 10.795],
+              [106.968, 10.665],
+              [107.018, 10.515],
+              [106.955, 10.376],
+              [106.815, 10.412],
+              [106.725, 10.555],
+              [106.635, 10.625],
+              [106.512, 10.682],
+              [106.435, 10.798],
+              [106.382, 10.965],
+              [106.356, 11.160],
+            ],
+          ],
+        },
+      },
+    ],
+  },
 };
 
 export const DEFAULT_FILTERS = {

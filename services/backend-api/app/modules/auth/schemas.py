@@ -16,8 +16,10 @@ class AuthUser(BaseModel):
     email: str
     phone: str | None = None
     role: str
+    managedProvince: str | None = None
     managedDistrict: str | None = None
     managedWard: str | None = None
+    managed_province: str | None = None
     managed_district: str | None = None
     managed_ward: str | None = None
     isActive: bool = True
@@ -27,10 +29,13 @@ class AuthUser(BaseModel):
     @classmethod
     def sync_district_fields(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            province = data.get("managedProvince") or data.get("managed_province")
             district = data.get("managedDistrict") or data.get("managed_district")
             ward = data.get("managedWard") or data.get("managed_ward")
             is_active_val = data.get("isActive") if "isActive" in data else data.get("is_active")
             is_active_bool = bool(is_active_val) if is_active_val is not None else True
+            data["managedProvince"] = province
+            data["managed_province"] = province
             data["managedDistrict"] = district
             data["managed_district"] = district
             data["managedWard"] = ward

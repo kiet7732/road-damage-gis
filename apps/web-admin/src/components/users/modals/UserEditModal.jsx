@@ -1,6 +1,6 @@
 import { FiEdit2, FiAlertCircle, FiX } from 'react-icons/fi';
 import { UI_COLORS } from '../../../constants/statusColors';
-import { DISTRICT_OPTIONS } from '../../../constants/userConstants';
+import { DISTRICT_OPTIONS, PROVINCE_OPTIONS } from '../../../constants/userConstants';
 
 export default function UserEditModal({
   isOpen,
@@ -13,6 +13,23 @@ export default function UserEditModal({
   actionError,
 }) {
   if (!isOpen || !selectedUser) return null;
+
+  const isNoScopeRole =
+    editForm.role === 'reporter' || editForm.role === 'admin' || editForm.role === 'system_admin';
+  const isProvinceRole = editForm.role === 'province_officer';
+
+  const handleRoleChange = (e) => {
+    const newRole = e.target.value;
+    setEditForm({
+      ...editForm,
+      role: newRole,
+      ...(newRole === 'reporter' || newRole === 'admin' || newRole === 'system_admin'
+        ? { managedProvince: '', managedDistrict: '', managedWard: '' }
+        : newRole === 'province_officer'
+        ? { managedProvince: editForm.managedProvince || 'Bình Dương', managedDistrict: '', managedWard: '' }
+        : {}),
+    });
+  };
 
   return (
     <div style={styles.modalOverlay} onClick={() => !actionLoading && onClose()}>
@@ -56,27 +73,57 @@ export default function UserEditModal({
             />
           </div>
 
-          {editForm.role === 'reporter' ? (
+          {isNoScopeRole ? (
             <div style={styles.formGroup}>
               <label style={styles.label}>Vai trò</label>
               <select
                 id="edit-user-role"
                 value={editForm.role}
-                onChange={(e) => {
-                  const newRole = e.target.value;
-                  setEditForm({
-                    ...editForm,
-                    role: newRole,
-                    ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
-                  });
-                }}
+                onChange={handleRoleChange}
                 style={styles.input}
               >
+                <option value="province_officer">Quản trị viên cấp tỉnh</option>
+                <option value="admin">Quản trị viên hệ thống</option>
+                <option value="district_officer">Cán bộ địa bàn</option>
                 <option value="field_engineer">Kỹ sư hiện trường</option>
                 <option value="reporter">Người phản ánh</option>
-                <option value="district_officer">Cán bộ địa bàn</option>
-                <option value="admin">Quản trị viên</option>
               </select>
+            </div>
+          ) : isProvinceRole ? (
+            <div style={styles.formRow}>
+              <div style={styles.formCol}>
+                <label style={styles.label}>Vai trò</label>
+                <select
+                  id="edit-user-role"
+                  value={editForm.role}
+                  onChange={handleRoleChange}
+                  style={styles.input}
+                >
+                  <option value="province_officer">Quản trị viên cấp tỉnh</option>
+                  <option value="admin">Quản trị viên hệ thống</option>
+                  <option value="district_officer">Cán bộ địa bàn</option>
+                  <option value="field_engineer">Kỹ sư hiện trường</option>
+                  <option value="reporter">Người phản ánh</option>
+                </select>
+              </div>
+
+              <div style={styles.formCol}>
+                <label style={styles.label}>Vùng quản lý (Tỉnh / TP)</label>
+                <select
+                  id="edit-user-province"
+                  value={editForm.managedProvince || ''}
+                  onChange={(e) => setEditForm({ ...editForm, managedProvince: e.target.value })}
+                  style={styles.input}
+                  required
+                >
+                  <option value="">-- Chọn Tỉnh / Thành phố --</option>
+                  {PROVINCE_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           ) : (
             <div style={styles.formRow}>
@@ -85,20 +132,14 @@ export default function UserEditModal({
                 <select
                   id="edit-user-role"
                   value={editForm.role}
-                  onChange={(e) => {
-                    const newRole = e.target.value;
-                    setEditForm({
-                      ...editForm,
-                      role: newRole,
-                      ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
-                    });
-                  }}
+                  onChange={handleRoleChange}
                   style={styles.input}
                 >
+                  <option value="province_officer">Quản trị viên cấp tỉnh</option>
+                  <option value="admin">Quản trị viên hệ thống</option>
+                  <option value="district_officer">Cán bộ địa bàn</option>
                   <option value="field_engineer">Kỹ sư hiện trường</option>
                   <option value="reporter">Người phản ánh</option>
-                  <option value="district_officer">Cán bộ địa bàn</option>
-                  <option value="admin">Quản trị viên</option>
                 </select>
               </div>
 
@@ -110,7 +151,7 @@ export default function UserEditModal({
                   onChange={(e) => setEditForm({ ...editForm, managedDistrict: e.target.value })}
                   style={styles.input}
                 >
-                  <option value="">Toàn thành phố / Không giới hạn</option>
+                  <option value="">Toàn vùng / Không giới hạn</option>
                   {DISTRICT_OPTIONS.map((d) => (
                     <option key={d} value={d}>
                       {d}

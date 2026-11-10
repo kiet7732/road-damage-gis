@@ -31,6 +31,7 @@ export async function fetchAdminUsers({
   page = 1,
   pageSize = DEFAULT_PAGE_SIZE,
   role = '',
+  province = '',
   district = '',
   status = '',
   search = '',
@@ -42,6 +43,9 @@ export async function fetchAdminUsers({
 
   if (role && role !== 'all') {
     params.role = role;
+  }
+  if (province && province !== 'all') {
+    params.province = province;
   }
   if (district && district !== 'all') {
     params.district = district;
@@ -58,25 +62,45 @@ export async function fetchAdminUsers({
 
 export async function createAdminUser(data) {
   const isReporter = data.role === 'reporter';
+  const isSystemAdmin = data.role === 'admin' || data.role === 'system_admin' || data.role === 'super_admin';
+  const isProvinceOfficer = data.role === 'province_officer' || data.role === 'provincial_admin';
   return api.post('/admin/users', {
     fullName: data.fullName.trim(),
     email: data.email.trim().toLowerCase(),
     password: data.password,
     phone: data.phone?.trim() || null,
     role: data.role || 'field_engineer',
-    managedDistrict: isReporter ? null : (data.managedDistrict?.trim() || null),
-    managedWard: isReporter ? null : (data.managedWard?.trim() || null),
+    managedProvince:
+      isReporter || isSystemAdmin ? null : (data.managedProvince?.trim() || null),
+    managedDistrict:
+      isReporter || isSystemAdmin || isProvinceOfficer
+        ? null
+        : (data.managedDistrict?.trim() || null),
+    managedWard:
+      isReporter || isSystemAdmin || isProvinceOfficer
+        ? null
+        : (data.managedWard?.trim() || null),
   });
 }
 
 export async function updateAdminUser(userId, data) {
   const isReporter = data.role === 'reporter';
+  const isSystemAdmin = data.role === 'admin' || data.role === 'system_admin' || data.role === 'super_admin';
+  const isProvinceOfficer = data.role === 'province_officer' || data.role === 'provincial_admin';
   return api.put(`/admin/users/${userId}`, {
     fullName: data.fullName?.trim(),
     phone: data.phone?.trim() || null,
     role: data.role,
-    managedDistrict: isReporter ? null : (data.managedDistrict?.trim() || null),
-    managedWard: isReporter ? null : (data.managedWard?.trim() || null),
+    managedProvince:
+      isReporter || isSystemAdmin ? null : (data.managedProvince?.trim() || null),
+    managedDistrict:
+      isReporter || isSystemAdmin || isProvinceOfficer
+        ? null
+        : (data.managedDistrict?.trim() || null),
+    managedWard:
+      isReporter || isSystemAdmin || isProvinceOfficer
+        ? null
+        : (data.managedWard?.trim() || null),
   });
 }
 

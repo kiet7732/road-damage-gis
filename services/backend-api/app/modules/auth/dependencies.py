@@ -8,11 +8,19 @@ from app.database import get_connection
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schemas import AuthUser
 from app.modules.auth.security import ACCESS_TOKEN_TYPE, TokenValidationError, decode_token
+from app.provinces_data import (
+    PROVINCE_DISTRICT_HIERARCHY,
+    normalize_province_name,
+)
 
 
 http_bearer = HTTPBearer(auto_error=False)
-ADMIN_ROLES = {"admin", "super_admin", "manager", "staff", "officer", "can_bo", "district_officer"}
+SYSTEM_ADMIN_ROLES = {"admin", "system_admin", "super_admin", "manager"}
+PROVINCE_ADMIN_ROLES = {"province_officer", "provincial_admin", "provincial_manager"}
+DISTRICT_OFFICER_ROLES = {"district_officer", "officer", "can_bo", "staff"}
+ADMIN_ROLES = SYSTEM_ADMIN_ROLES | PROVINCE_ADMIN_ROLES | DISTRICT_OFFICER_ROLES
 ENGINEER_ROLES = {"field_engineer"}
+WEB_ONLY_ROLES = PROVINCE_ADMIN_ROLES | DISTRICT_OFFICER_ROLES
 
 
 def _get_access_token(
@@ -111,15 +119,106 @@ def get_engineer_user(
     return current_user
 
 
+def is_system_admin(user: AuthUser) -> bool:
+    role = (user.role or "").strip().lower()
+    return role in SYSTEM_ADMIN_ROLES
+
+
+def is_user_province_restricted(user: AuthUser) -> bool:
+    if is_system_admin(user):
+        return False
+    role = (user.role or "").strip().lower()
+    managed_province = (user.managed_province or user.managedProvince or "").strip()
+    return role in PROVINCE_ADMIN_ROLES or (bool(managed_province) and role not in DISTRICT_OFFICER_ROLES)
+
+
+def get_user_managed_province(user: AuthUser) -> str | None:
+    if is_system_admin(user):
+        return None
+    raw_province = (user.managed_province or user.managedProvince or "").strip()
+    return normalize_province_name(raw_province)
+
+
 def is_user_spatially_restricted(user: AuthUser) -> bool:
+    if is_system_admin(user) or is_user_province_restricted(user):
+        return False
     role = (user.role or "").strip().lower()
     managed_district = (user.managed_district or user.managedDistrict or "").strip()
-    return role == "district_officer" or bool(managed_district)
+    return role in DISTRICT_OFFICER_ROLES or bool(managed_district)
 
 
 def get_user_managed_district(user: AuthUser) -> str | None:
+    if is_system_admin(user) or is_user_province_restricted(user):
+        return None
     managed_district = (user.managed_district or user.managedDistrict or "").strip()
     return managed_district or None
+
+
+def _infer_province_from_district(district: str | None) -> str | None:
+    if not district or not district.strip():
+        return None
+    clean_dist = district.strip().lower()
+    for prov, districts in PROVINCE_DISTRICT_HIERARCHY.items():
+        for d in districts:
+            d_low = d.lower()
+            d_short = (
+                d_low.replace("thành phố ", "")
+                .replace("thị xã ", "")
+                .replace("quận ", "")
+                .replace("huyện ", "")
+                .strip()
+            )
+            if clean_dist == d_low or clean_dist == d_short:
+                return prov
+    return None
+
+
+def enforce_web_only_role_restriction(current_user: AuthUser) -> None:
+    """
+    Ngăn chặn vai trò Quản trị viên cấp tỉnh (province_officer) sử dụng chức năng của Mobile App.
+    """
+    role = (current_user.role or "").strip().lower()
+    if role in PROVINCE_ADMIN_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vai trò Quản trị viên cấp tỉnh chỉ được phép sử dụng trên hệ thống Web Admin.",
+        )
+
+
+def enforce_spatial_province_access(
+    current_user: AuthUser,
+    requested_province: str | None,
+) -> str | None:
+    """
+    Cưỡng chế kiểm soát phạm vi Tỉnh/Thành phố (Spatial Row-Level Security cấp Tỉnh):
+    - Quản trị viên hệ thống (admin / system_admin): Không giới hạn, trả về requested_province.
+    - Quản trị viên cấp tỉnh (province_officer):
+      - Bắt buộc phải có managed_province.
+      - Nếu truyền requested_province khác managed_province -> 403 Forbidden.
+      - Luôn trả về managed_province để ép điều kiện lọc SQL.
+    - Cán bộ cấp quận/huyện (district_officer):
+      - Tự động suy luận tỉnh từ managed_district (nếu có) hoặc giữ nguyên requested_province.
+    """
+    if is_system_admin(current_user):
+        return normalize_province_name(requested_province) or ((requested_province or "").strip() or None)
+
+    if is_user_province_restricted(current_user):
+        user_province = get_user_managed_province(current_user)
+        if not user_province:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản Quản trị viên cấp tỉnh chưa được gán vùng quản lý.",
+            )
+        if requested_province and requested_province.strip():
+            req_norm = normalize_province_name(requested_province)
+            if not req_norm or req_norm.lower() != user_province.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Quản trị viên cấp tỉnh ({user_province}) không có quyền truy cập hoặc thao tác dữ liệu ngoài vùng quản lý.",
+                )
+        return user_province
+
+    return normalize_province_name(requested_province) or ((requested_province or "").strip() or None)
 
 
 def enforce_spatial_district_access(
@@ -127,14 +226,31 @@ def enforce_spatial_district_access(
     requested_district: str | None,
 ) -> str | None:
     """
-    Enforces spatial access control based on user role and managed district:
-    - If user is spatially restricted (district_officer or has managed_district):
-      - If requested_district is supplied and does NOT match user's managed district:
-        Raise 403 Forbidden (AC-02).
-      - Otherwise, returns the user's managed district as the mandatory filter (AC-01).
-    - If user is not spatially restricted (super_admin, general admin):
-      - Returns requested_district as requested (no restriction) (AC-03).
+    Enforces spatial access control based on user role and managed district/province:
+    - If user is system_admin: no restriction.
+    - If user is province_officer: can access any district within their managed_province,
+      but raises 403 if requested_district belongs to a different province.
+    - If user is district_officer: restricted strictly to managed_district.
     """
+    if is_system_admin(current_user):
+        return (requested_district or "").strip() or None
+
+    if is_user_province_restricted(current_user):
+        user_province = get_user_managed_province(current_user)
+        if not user_province:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản Quản trị viên cấp tỉnh chưa được gán vùng quản lý.",
+            )
+        if requested_district and requested_district.strip():
+            inferred_prov = _infer_province_from_district(requested_district)
+            if inferred_prov and inferred_prov.lower() != user_province.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Quản trị viên cấp tỉnh ({user_province}) không có quyền truy cập địa bàn '{requested_district.strip()}' thuộc tỉnh khác.",
+                )
+        return (requested_district or "").strip() or None
+
     if not is_user_spatially_restricted(current_user):
         return (requested_district or "").strip() or None
 
@@ -157,12 +273,33 @@ def verify_report_spatial_access(
     current_user: AuthUser,
     report_district: str | None,
     *,
+    report_province: str | None = None,
     action_description: str = "truy cập",
 ) -> None:
     """
-    Verifies that the current user has permission to access or modify a report in report_district.
-    Raises 403 Forbidden if the user is restricted to a different district (AC-02).
+    Verifies that the current user has permission to access or modify a report in report_province / report_district.
+    Raises 403 Forbidden if the user is restricted to a different province or district.
     """
+    if is_system_admin(current_user):
+        return
+
+    if is_user_province_restricted(current_user):
+        user_province = get_user_managed_province(current_user)
+        if not user_province:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản Quản trị viên cấp tỉnh chưa được gán vùng quản lý.",
+            )
+        effective_report_province = normalize_province_name(report_province) or _infer_province_from_district(
+            report_district
+        )
+        if not effective_report_province or effective_report_province.lower() != user_province.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Không có quyền {action_description} hồ sơ phản ánh nằm ngoài vùng quản lý ({user_province}).",
+            )
+        return
+
     if not is_user_spatially_restricted(current_user):
         return
 

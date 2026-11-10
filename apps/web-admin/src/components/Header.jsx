@@ -5,11 +5,31 @@ import { useAuth } from '../hooks/useAuth';
 const NAV_ICON_SIZE = 24;
 const INLINE_ICON_SIZE = 18;
 
+const getRoleLabel = (role) => {
+  const normalized = (role || '').trim().toLowerCase();
+  if (normalized === 'province_officer' || normalized === 'provincial_admin' || normalized === 'provincial_manager') {
+    return 'Quản trị viên cấp tỉnh';
+  }
+  if (normalized === 'district_officer' || normalized === 'officer') {
+    return 'Cán bộ địa bàn';
+  }
+  if (normalized === 'admin' || normalized === 'system_admin' || normalized === 'super_admin') {
+    return 'Quản trị viên hệ thống';
+  }
+  return role || 'Quản trị viên hệ thống';
+};
+
 export default function Header({ compact = false, onMenuClick, onLogout }) {
   const { user: currentUser } = useAuth();
   const displayName = currentUser?.fullName?.trim() || currentUser?.name?.trim() || 'Tài khoản';
-  const displayRole = currentUser?.role?.trim() || 'Chưa có vai trò';
+  const displayRole = getRoleLabel(currentUser?.role);
+  const managedProvince = currentUser?.managed_province || currentUser?.managedProvince;
   const managedDistrict = currentUser?.managed_district || currentUser?.managedDistrict;
+  const managedScopeLabel = managedProvince
+    ? `Vùng: ${managedProvince}`
+    : managedDistrict
+    ? managedDistrict
+    : null;
   const avatarText = displayName.charAt(0).toUpperCase();
 
   return (
@@ -44,8 +64,8 @@ export default function Header({ compact = false, onMenuClick, onLogout }) {
               <div style={styles.userName}>{displayName}</div>
               <div className="road-admin-user-role" style={styles.userRole}>
                 <span>{displayRole}</span>
-                {managedDistrict ? (
-                  <span style={styles.districtBadge}>{managedDistrict}</span>
+                {managedScopeLabel ? (
+                  <span style={styles.districtBadge}>{managedScopeLabel}</span>
                 ) : null}
               </div>
             </div>

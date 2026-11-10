@@ -47,10 +47,11 @@ export default function UserFilterBar({
           style={styles.select}
         >
           <option value="all">Tất cả vai trò</option>
+          <option value="admin">Quản trị viên hệ thống</option>
+          <option value="province_officer">Quản trị viên cấp tỉnh</option>
+          <option value="officer">Cán bộ địa bàn</option>
           <option value="field_engineer">Kỹ sư hiện trường</option>
           <option value="reporter">Người phản ánh</option>
-          <option value="officer">Cán bộ địa bàn</option>
-          <option value="admin">Quản trị viên</option>
         </select>
 
         {/* District Filter */}

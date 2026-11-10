@@ -9,6 +9,10 @@ import {
 
 export type AdminRole =
   | 'admin'
+  | 'system_admin'
+  | 'province_officer'
+  | 'provincial_admin'
+  | 'provincial_manager'
   | 'manager'
   | 'staff'
   | 'officer'
@@ -27,6 +31,8 @@ export type AdminUser = {
   name?: string;
   email?: string;
   role?: string;
+  managedProvince?: string | null;
+  managed_province?: string | null;
   managedDistrict?: string | null;
   managedWard?: string | null;
   managed_district?: string | null;
@@ -52,6 +58,10 @@ export type AdminSessionBootstrapResult =
 
 const ALLOWED_ADMIN_ROLES = new Set<string>([
   'admin',
+  'system_admin',
+  'province_officer',
+  'provincial_admin',
+  'provincial_manager',
   'manager',
   'staff',
   'officer',

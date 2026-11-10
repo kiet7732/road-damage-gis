@@ -3,6 +3,7 @@ import sqlite3
 from collections import Counter, defaultdict
 from datetime import date, datetime
 
+from app.provinces_data import build_province_sql_clause
 from app.modules.reports.priority_calculator import (
     PRIORITY_LEVEL_METADATA,
     compute_priority_assessment,
@@ -57,12 +58,19 @@ class ReportAnalyticsMixin:
     def get_admin_dashboard(
         self,
         *,
+        province: str | None = None,
         district: str | None = None,
         from_date: str | None = None,
         to_date: str | None = None,
     ) -> AdminDashboardResponse:
         where_clauses = []
         params: list[object] = []
+        if province and province.strip():
+            prov_clause, prov_params = build_province_sql_clause(province, "reports")
+            if prov_clause:
+                where_clauses.append(prov_clause)
+                params.extend(prov_params)
+
         if district and district.strip():
             d = district.strip()
             where_clauses.append("(TRIM(COALESCE(reports.district, '')) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ?)")
@@ -209,12 +217,19 @@ class ReportAnalyticsMixin:
     def get_administrative_stats(
         self,
         *,
+        province: str | None = None,
         district: str | None = None,
         from_date: str | None = None,
         to_date: str | None = None,
     ) -> AdministrativeStatsResponse:
         where_clauses = []
         params: list[object] = []
+        if province and province.strip():
+            prov_clause, prov_params = build_province_sql_clause(province, "reports")
+            if prov_clause:
+                where_clauses.append(prov_clause)
+                params.extend(prov_params)
+
         if district and district.strip():
             d = district.strip()
             where_clauses.append("(TRIM(COALESCE(reports.district, '')) = ? OR LOWER(TRIM(COALESCE(reports.district, ''))) = ?)")

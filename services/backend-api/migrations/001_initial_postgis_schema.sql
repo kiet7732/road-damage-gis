@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone VARCHAR(32),
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(32) NOT NULL,
+    managed_province VARCHAR(128),
     managed_district VARCHAR(128),
     managed_ward VARCHAR(128),
     auth_revoked_at TIMESTAMPTZ,
@@ -25,8 +26,10 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_province VARCHAR(128);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_managed_province ON users(managed_province);
 CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
 
 -- 3. Bảng reports: Quản lý báo cáo hư hỏng mặt đường chuẩn PostGIS

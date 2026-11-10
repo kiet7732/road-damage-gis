@@ -34,14 +34,14 @@ const PAGE_SIZE = 10;
 
 export default function NoDamageReportsView() {
   const navigate = useNavigate();
-  const { managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict } = useAuth();
   const { showToast } = useToast();
 
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [approvalFilter, setApprovalFilter] = useState(''); // '' | 'unapproved' | 'approved'
   const [adminFilters, setAdminFilters] = useState(() => ({
-    province: '',
+    province: managedProvince || '',
     district: managedDistrict || '',
     ward: '',
     roadName: '',
@@ -56,6 +56,15 @@ export default function NoDamageReportsView() {
 
   // Photo lightbox modal state
   const [lightboxImageUrl, setLightboxImageUrl] = useState(null);
+
+  useEffect(() => {
+    if (managedProvince && adminFilters.province !== managedProvince) {
+      setAdminFilters((current) => ({
+        ...current,
+        province: managedProvince,
+      }));
+    }
+  }, [managedProvince, adminFilters.province]);
 
   useEffect(() => {
     if (managedDistrict && adminFilters.district !== managedDistrict) {
@@ -179,6 +188,7 @@ export default function NoDamageReportsView() {
         filters={adminFilters}
         values={adminFilters}
         onChange={handleAdminFiltersChange}
+        fixedProvince={managedProvince}
         fixedDistrict={managedDistrict}
       />
 

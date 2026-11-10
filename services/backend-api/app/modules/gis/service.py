@@ -40,12 +40,21 @@ class GisService:
             limit=limit,
         )
 
-    def get_administrative_hierarchy(self, *, district: str | None = None) -> AdministrativeHierarchyResponse:
-        return self.repository.get_administrative_hierarchy(district=district)
+    def get_administrative_hierarchy(
+        self,
+        *,
+        province: str | None = None,
+        district: str | None = None,
+    ) -> AdministrativeHierarchyResponse:
+        return self.repository.get_administrative_hierarchy(
+            province=province,
+            district=district,
+        )
 
     def get_map_points(
         self,
         *,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -54,6 +63,7 @@ class GisService:
         limit: int = 1500,
     ) -> ReportMapListResponse:
         return self.repository.get_map_points(
+            province=province,
             district=district,
             ward=ward,
             road_name=road_name,

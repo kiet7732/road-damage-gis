@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,9 +15,19 @@ from app.modules.auth.admin_users_schemas import (
     ToggleUserStatusRequest,
     UpdateAdminUserRequest,
 )
-from app.modules.auth.dependencies import get_admin_user
+from app.modules.auth.dependencies import (
+    get_admin_user,
+    get_user_managed_province,
+    is_system_admin,
+    is_user_province_restricted,
+)
 from app.modules.auth.schemas import AuthUser
 from app.modules.auth.security import hash_password
+from app.provinces_data import (
+    PROVINCE_DISTRICT_HIERARCHY,
+    get_province_sql_variants,
+    normalize_province_name,
+)
 
 
 router = APIRouter(prefix="/admin/users", tags=["admin-users"])
@@ -26,6 +37,8 @@ def _row_to_user_item(row: sqlite3.Row) -> AdminUserItemResponse:
     keys = row.keys() if hasattr(row, "keys") else []
     is_active_raw = row["is_active"] if "is_active" in keys else 1
     is_active = bool(is_active_raw) if is_active_raw is not None else True
+    raw_prov = row["managed_province"] if "managed_province" in keys else None
+    norm_prov = normalize_province_name(raw_prov) or raw_prov
 
     return AdminUserItemResponse(
         id=row["id"],
@@ -34,6 +47,8 @@ def _row_to_user_item(row: sqlite3.Row) -> AdminUserItemResponse:
         email=row["email"],
         phone=row["phone"] if "phone" in keys else None,
         role=row["role"],
+        managedProvince=norm_prov,
+        managed_province=norm_prov,
         managedDistrict=row["managed_district"] if "managed_district" in keys else None,
         managed_district=row["managed_district"] if "managed_district" in keys else None,
         managedWard=row["managed_ward"] if "managed_ward" in keys else None,
@@ -47,9 +62,41 @@ def _row_to_user_item(row: sqlite3.Row) -> AdminUserItemResponse:
     )
 
 
+def _ensure_province_user_access(current_user: AuthUser, target_row: Any) -> None:
+    if is_system_admin(current_user):
+        return
+    if is_user_province_restricted(current_user):
+        user_prov = get_user_managed_province(current_user)
+        keys = target_row.keys() if hasattr(target_row, "keys") else []
+        target_role = (target_row["role"] or "").strip().lower()
+        if target_role in ("admin", "system_admin", "super_admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Quản trị viên cấp tỉnh không có quyền thao tác trên tài khoản Quản trị viên hệ thống.",
+            )
+        target_prov = normalize_province_name(
+            target_row["managed_province"] if "managed_province" in keys else None
+        )
+        target_dist = (target_row["managed_district"] if "managed_district" in keys else None) or ""
+        allowed_districts = {d.lower() for d in PROVINCE_DISTRICT_HIERARCHY.get(user_prov or "", [])}
+        dist_short_matches = any(
+            target_dist.strip().lower() in (d, d.replace("thành phố ", "").replace("quận ", "").replace("huyện ", ""))
+            for d in allowed_districts
+        )
+        if target_prov and user_prov and target_prov.lower() == user_prov.lower():
+            return
+        if target_dist.strip() and dist_short_matches:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Không có quyền thao tác với tài khoản ngoài vùng quản lý ({user_prov}).",
+        )
+
+
 @router.get("", response_model=AdminUserListResponse)
 def list_users(
     role: str | None = Query(default=None),
+    province: str | None = Query(default=None),
     district: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     search: str | None = Query(default=None),
@@ -58,19 +105,73 @@ def list_users(
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminUserListResponse:
     with get_connection() as connection:
-        # Calculate stats across the entire table
+        # Build scope filter if current_user is province_officer
+        scope_conditions: list[str] = ["1=1"]
+        scope_params: list[object] = []
+
+        effective_province = normalize_province_name(province)
+        if is_user_province_restricted(current_user):
+            user_prov = get_user_managed_province(current_user)
+            if not user_prov:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tài khoản Quản trị viên cấp tỉnh chưa được gán vùng quản lý.",
+                )
+            if effective_province and effective_province.lower() != user_prov.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Quản trị viên cấp tỉnh ({user_prov}) không có quyền xem người dùng ngoài vùng quản lý.",
+                )
+            effective_province = user_prov
+            scope_conditions.append("lower(role) NOT IN ('admin', 'system_admin', 'super_admin')")
+
+        if effective_province:
+            prov_variants = [v.lower() for v in get_province_sql_variants(effective_province)]
+            prov_districts = PROVINCE_DISTRICT_HIERARCHY.get(effective_province, [])
+            dist_variants: list[str] = []
+            for d in prov_districts:
+                dist_variants.append(d.lower())
+                short_d = (
+                    d.lower()
+                    .replace("thành phố ", "")
+                    .replace("thị xã ", "")
+                    .replace("quận ", "")
+                    .replace("huyện ", "")
+                    .strip()
+                )
+                if short_d not in dist_variants:
+                    dist_variants.append(short_d)
+
+            or_parts: list[str] = []
+            if prov_variants:
+                placeholders = ", ".join(["?" for _ in prov_variants])
+                or_parts.append(f"lower(TRIM(COALESCE(managed_province, ''))) IN ({placeholders})")
+                scope_params.extend(prov_variants)
+            if dist_variants:
+                d_placeholders = ", ".join(["?" for _ in dist_variants])
+                or_parts.append(f"lower(TRIM(COALESCE(managed_district, ''))) IN ({d_placeholders})")
+                scope_params.extend(dist_variants)
+            if or_parts:
+                scope_conditions.append(f"({' OR '.join(or_parts)})")
+
+        scope_where = " AND ".join(scope_conditions)
+
+        # Calculate stats across the scoped table (PostgreSQL & SQLite boolean-safe)
         stats_rows = connection.execute(
-            """
+            f"""
             SELECT
                 count(*) as total_users,
                 sum(CASE WHEN lower(role) = 'field_engineer' THEN 1 ELSE 0 END) as total_engineers,
                 sum(CASE WHEN lower(role) = 'reporter' THEN 1 ELSE 0 END) as total_reporters,
                 sum(CASE WHEN lower(role) IN ('district_officer', 'officer', 'can_bo') THEN 1 ELSE 0 END) as total_officers,
-                sum(CASE WHEN lower(role) IN ('admin', 'super_admin', 'manager') THEN 1 ELSE 0 END) as total_admins,
-                sum(CASE WHEN is_active = 1 OR is_active IS NULL THEN 1 ELSE 0 END) as total_active,
-                sum(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as total_locked
+                sum(CASE WHEN lower(role) IN ('province_officer', 'provincial_admin', 'provincial_manager') THEN 1 ELSE 0 END) as total_province_officers,
+                sum(CASE WHEN lower(role) IN ('admin', 'system_admin', 'super_admin', 'manager') THEN 1 ELSE 0 END) as total_admins,
+                sum(CASE WHEN CAST(COALESCE(is_active, TRUE) AS TEXT) IN ('1', 'true', 't', 'True') THEN 1 ELSE 0 END) as total_active,
+                sum(CASE WHEN CAST(is_active AS TEXT) IN ('0', 'false', 'f', 'False') THEN 1 ELSE 0 END) as total_locked
             FROM users
-            """
+            WHERE {scope_where}
+            """,
+            scope_params,
         ).fetchone()
 
         stats = AdminUserStatsResponse(
@@ -78,35 +179,38 @@ def list_users(
             total_engineers=stats_rows["total_engineers"] or 0,
             total_reporters=stats_rows["total_reporters"] or 0,
             total_officers=stats_rows["total_officers"] or 0,
+            total_province_officers=stats_rows["total_province_officers"] or 0,
             total_admins=stats_rows["total_admins"] or 0,
             total_active=stats_rows["total_active"] or 0,
             total_locked=stats_rows["total_locked"] or 0,
         )
 
         # Build dynamic query
-        conditions: list[str] = ["1=1"]
-        params: list[object] = []
+        conditions: list[str] = list(scope_conditions)
+        params: list[object] = list(scope_params)
 
         if role and role.strip() and role.strip().lower() != "all":
             clean_role = role.strip().lower()
-            if clean_role == "officer":
+            if clean_role in ("officer", "district_officer"):
                 conditions.append("lower(role) IN ('district_officer', 'officer', 'can_bo')")
-            elif clean_role == "admin":
-                conditions.append("lower(role) IN ('admin', 'super_admin', 'manager')")
+            elif clean_role in ("province_officer", "provincial_admin"):
+                conditions.append("lower(role) IN ('province_officer', 'provincial_admin', 'provincial_manager')")
+            elif clean_role in ("admin", "system_admin"):
+                conditions.append("lower(role) IN ('admin', 'system_admin', 'super_admin', 'manager')")
             else:
                 conditions.append("lower(role) = lower(?)")
                 params.append(clean_role)
 
-        if district and district.strip():
+        if district and district.strip() and district.strip().lower() != "all":
             conditions.append("lower(managed_district) LIKE lower(?)")
             params.append(f"%{district.strip()}%")
 
-        if status_filter and status_filter.strip():
+        if status_filter and status_filter.strip() and status_filter.strip().lower() != "all":
             st = status_filter.strip().lower()
             if st == "active":
-                conditions.append("(is_active = 1 OR is_active IS NULL)")
+                conditions.append("CAST(COALESCE(is_active, TRUE) AS TEXT) IN ('1', 'true', 't', 'True')")
             elif st in ("locked", "inactive"):
-                conditions.append("is_active = 0")
+                conditions.append("CAST(is_active AS TEXT) IN ('0', 'false', 'f', 'False')")
 
         if search and search.strip():
             kw = f"%{search.strip()}%"
@@ -145,6 +249,16 @@ def create_user(
     payload: CreateAdminUserRequest,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminUserItemResponse:
+    role = payload.role.strip().lower()
+    if role == "system_admin":
+        role = "admin"
+
+    if role in ("admin", "province_officer") and not is_system_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ Quản trị viên hệ thống mới có quyền tạo tài khoản Quản trị viên hệ thống hoặc Quản trị viên cấp tỉnh.",
+        )
+
     with get_connection() as connection:
         existing = connection.execute(
             "SELECT id FROM users WHERE lower(email) = lower(?)",
@@ -160,11 +274,24 @@ def create_user(
         now = datetime.now(timezone.utc).isoformat()
         user_id = str(uuid4())
         phone = payload.phone.strip() if payload.phone else None
-        role = payload.role.strip().lower()
-        if role == "reporter":
+
+        if role in ("reporter", "admin"):
+            province = None
+            district = None
+            ward = None
+        elif role == "province_officer":
+            province = normalize_province_name(payload.managedProvince)
+            if not province:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Vui lòng chọn Tỉnh/Thành phố quản lý cho tài khoản Quản trị viên cấp tỉnh.",
+                )
             district = None
             ward = None
         else:
+            province = normalize_province_name(payload.managedProvince)
+            if is_user_province_restricted(current_user):
+                province = get_user_managed_province(current_user)
             district = payload.managedDistrict.strip() if payload.managedDistrict else None
             ward = payload.managedWard.strip() if payload.managedWard else None
 
@@ -177,13 +304,14 @@ def create_user(
                 phone,
                 password_hash,
                 role,
+                managed_province,
                 managed_district,
                 managed_ward,
                 is_active,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -192,8 +320,10 @@ def create_user(
                 phone,
                 hash_password(payload.password),
                 role,
+                province,
                 district,
                 ward,
+                True,
                 now,
                 now,
             ),
@@ -216,6 +346,7 @@ def get_user_detail(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Không tìm thấy người dùng.",
             )
+        _ensure_province_user_access(current_user, row)
         return _row_to_user_item(row)
 
 
@@ -233,17 +364,45 @@ def update_user(
                 detail="Không tìm thấy người dùng.",
             )
 
+        _ensure_province_user_access(current_user, row)
+
         now = datetime.now(timezone.utc).isoformat()
         full_name = payload.fullName if payload.fullName is not None else row["full_name"]
         phone = payload.phone if payload.phone is not None else row["phone"]
         role = payload.role if payload.role is not None else row["role"]
         if role:
             role = role.strip().lower()
+            if role == "system_admin":
+                role = "admin"
 
-        if role == "reporter":
+        if role in ("admin", "province_officer") and not is_system_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chỉ Quản trị viên hệ thống mới có quyền gán vai trò Quản trị viên hệ thống hoặc Quản trị viên cấp tỉnh.",
+            )
+
+        row_keys = row.keys() if hasattr(row, "keys") else []
+        existing_province = row["managed_province"] if "managed_province" in row_keys else None
+
+        if role in ("reporter", "admin"):
+            province = None
+            district = None
+            ward = None
+        elif role == "province_officer":
+            raw_prov = payload.managedProvince if payload.managedProvince is not None else existing_province
+            province = normalize_province_name(raw_prov)
+            if not province:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Vui lòng chọn Tỉnh/Thành phố quản lý cho tài khoản Quản trị viên cấp tỉnh.",
+                )
             district = None
             ward = None
         else:
+            raw_prov = payload.managedProvince if payload.managedProvince is not None else existing_province
+            province = normalize_province_name(raw_prov)
+            if is_user_province_restricted(current_user):
+                province = get_user_managed_province(current_user)
             district = payload.managedDistrict if payload.managedDistrict is not None else row["managed_district"]
             ward = payload.managedWard if payload.managedWard is not None else row["managed_ward"]
 
@@ -253,12 +412,13 @@ def update_user(
             SET full_name = ?,
                 phone = ?,
                 role = ?,
+                managed_province = ?,
                 managed_district = ?,
                 managed_ward = ?,
                 updated_at = ?
             WHERE id = ?
             """,
-            (full_name, phone, role, district, ward, now, user_id),
+            (full_name, phone, role, province, district, ward, now, user_id),
         )
         connection.commit()
 
@@ -286,8 +446,10 @@ def toggle_user_status(
                 detail="Không tìm thấy người dùng.",
             )
 
+        _ensure_province_user_access(current_user, row)
+
         now = datetime.now(timezone.utc).isoformat()
-        is_active_int = 1 if payload.isActive else 0
+        is_active_bool = bool(payload.isActive)
 
         if not payload.isActive:
             # Revoke auth sessions immediately
@@ -297,7 +459,7 @@ def toggle_user_status(
                 SET is_active = ?, auth_revoked_at = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (is_active_int, now, now, user_id),
+                (is_active_bool, now, now, user_id),
             )
             connection.execute(
                 """
@@ -314,7 +476,7 @@ def toggle_user_status(
                 SET is_active = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (is_active_int, now, user_id),
+                (is_active_bool, now, user_id),
             )
 
         connection.commit()
@@ -336,6 +498,8 @@ def reset_user_password(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Không tìm thấy người dùng.",
             )
+
+        _ensure_province_user_access(current_user, row)
 
         now = datetime.now(timezone.utc).isoformat()
         new_hash = hash_password(payload.newPassword)

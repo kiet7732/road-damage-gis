@@ -6,7 +6,19 @@
 export type AppRoleType = 'engineer' | 'reporter' | 'admin';
 
 export const ENGINEER_ROLES = new Set(['field_engineer', 'engineer', 'engineer_staff']);
-export const ADMIN_ROLES = new Set(['admin', 'manager', 'staff', 'officer', 'can_bo']);
+export const ADMIN_ROLES = new Set([
+  'admin',
+  'system_admin',
+  'super_admin',
+  'manager',
+  'province_officer',
+  'provincial_admin',
+  'provincial_manager',
+  'district_officer',
+  'staff',
+  'officer',
+  'can_bo',
+]);
 export const REPORTER_ROLES = new Set(['reporter', 'citizen', 'user']);
 
 /**

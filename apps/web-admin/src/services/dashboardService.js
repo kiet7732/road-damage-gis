@@ -30,6 +30,9 @@ export function getDashboardErrorMessage(error) {
 
 export async function fetchAdminDashboard(params = {}) {
   const query = {};
+  if (params?.province) {
+    query.province = params.province;
+  }
   if (params?.district) {
     query.district = params.district;
   }
@@ -44,6 +47,9 @@ export async function fetchAdminDashboard(params = {}) {
 
 export async function fetchAdministrativeStats(params = {}) {
   const query = {};
+  if (params?.province) {
+    query.province = params.province;
+  }
   if (params?.district) {
     query.district = params.district;
   }

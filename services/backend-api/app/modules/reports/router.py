@@ -9,6 +9,8 @@ from app.config import Settings, get_settings
 from app.database import get_connection
 from app.modules.auth.dependencies import (
     enforce_spatial_district_access,
+    enforce_spatial_province_access,
+    enforce_web_only_role_restriction,
     get_admin_user,
     get_current_user,
     get_engineer_user,
@@ -80,6 +82,7 @@ async def create_report(
     service: ReportService = Depends(get_report_service),
     current_user: AuthUser = Depends(get_current_user),
  ) -> ReporterReportResponse:
+    enforce_web_only_role_restriction(current_user)
     try:
         return await service.create_report(
             current_user=current_user,
@@ -106,6 +109,7 @@ async def preview_report_ai(
     service: ReportService = Depends(get_report_service),
     current_user: AuthUser = Depends(get_current_user),
 ) -> AiPreviewDetectionResult:
+    enforce_web_only_role_restriction(current_user)
     try:
         return await service.preview_ai_result(image=image)
     finally:
@@ -118,6 +122,7 @@ def list_report_history(
     offset: int = 0,
     current_user: AuthUser = Depends(get_current_user),
 ) -> ReporterReportListResponse:
+    enforce_web_only_role_restriction(current_user)
     with get_connection() as connection:
         items, total = ReportRepository(connection).list_reports(
             limit=limit,
@@ -190,6 +195,13 @@ def get_report(
             detail="Không tìm thấy phản ánh.",
         )
 
+    verify_report_spatial_access(
+        current_user,
+        report.district,
+        report_province=report.province,
+        action_description="truy cập",
+    )
+
     return report
 
 
@@ -213,6 +225,7 @@ def list_admin_reports(
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminReportListResponse:
     effective_status = status or status_filter
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
         items, total = ReportRepository(connection).list_reports(
@@ -224,7 +237,7 @@ def list_admin_reports(
             search=search,
             ai_status=ai_status,
             has_damage_detected=has_damage_detected,
-            province=province,
+            province=effective_province,
             district=effective_district,
             ward=ward,
             road_name=road_name,
@@ -238,14 +251,17 @@ def list_admin_reports(
 
 @router.get("/admin/dashboard", response_model=AdminDashboardResponse)
 def get_admin_dashboard(
+    province: str | None = None,
     district: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdminDashboardResponse:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
         return ReportRepository(connection).get_admin_dashboard(
+            province=effective_province,
             district=effective_district,
             from_date=from_date,
             to_date=to_date,
@@ -254,14 +270,17 @@ def get_admin_dashboard(
 
 @router.get("/admin/dashboard/administrative-stats", response_model=AdministrativeStatsResponse)
 def get_admin_dashboard_administrative_stats(
+    province: str | None = None,
     district: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
     current_user: AuthUser = Depends(get_admin_user),
 ) -> AdministrativeStatsResponse:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     with get_connection() as connection:
         return ReportRepository(connection).get_administrative_stats(
+            province=effective_province,
             district=effective_district,
             from_date=from_date,
             to_date=to_date,
@@ -282,7 +301,12 @@ def get_admin_report(
             detail="Không tìm thấy phản ánh.",
         )
 
-    verify_report_spatial_access(current_user, report.district, action_description="truy cập")
+    verify_report_spatial_access(
+        current_user,
+        report.district,
+        report_province=report.province,
+        action_description="truy cập",
+    )
 
     return report
 
@@ -303,7 +327,12 @@ def update_admin_report_status(
                 detail="Không tìm thấy phản ánh.",
             )
 
-        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="thao tác trên",
+        )
 
         updated_report = repository.update_report_status(
             report_id,
@@ -338,7 +367,12 @@ def update_admin_report_damage_type(
                 detail="Không tìm thấy phản ánh.",
             )
 
-        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="thao tác trên",
+        )
 
         updated_report = repository.update_report_damage_type(
             report_id,
@@ -373,7 +407,12 @@ def approve_report_for_survey(
                 detail="Không tìm thấy phản ánh.",
             )
 
-        verify_report_spatial_access(current_user, existing_report.district, action_description="thao tác trên")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="thao tác trên",
+        )
 
         updated_report = repository.approve_for_survey(
             report_id,
@@ -665,7 +704,12 @@ def assign_engineer_to_report(
         existing_report = report_repo.get_report(report_id, include_admin_fields=True)
         if existing_report is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phản ánh.")
-        verify_report_spatial_access(current_user, existing_report.district, action_description="phân công xử lý")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="phân công xử lý",
+        )
 
         auth_repository = AuthRepository(connection)
         engineer_row = auth_repository.get_user_by_id(payload.engineer_id)
@@ -697,7 +741,17 @@ def revoke_engineer_from_report(
     current_user: AuthUser = Depends(get_admin_user),
 ) -> dict[str, bool]:
     with get_connection() as connection:
-        ReportRepository(connection).revoke_engineer(
+        report_repo = ReportRepository(connection)
+        existing_report = report_repo.get_report(report_id, include_admin_fields=True)
+        if existing_report is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phản ánh.")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="thu hồi phân công",
+        )
+        report_repo.revoke_engineer(
             report_id,
             actor_id=current_user.id,
             updated_at=datetime.now(timezone.utc).isoformat(),
@@ -711,5 +765,15 @@ def get_admin_engineer_timeline(
     current_user: AuthUser = Depends(get_admin_user),
 ) -> EngineerTimelineResponse:
     with get_connection() as connection:
-        items = ReportRepository(connection).list_engineer_timeline(report_id)
+        report_repo = ReportRepository(connection)
+        existing_report = report_repo.get_report(report_id, include_admin_fields=True)
+        if existing_report is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phản ánh.")
+        verify_report_spatial_access(
+            current_user,
+            existing_report.district,
+            report_province=existing_report.province,
+            action_description="truy cập lịch sử kỹ sư",
+        )
+        items = report_repo.list_engineer_timeline(report_id)
     return EngineerTimelineResponse(items=items)

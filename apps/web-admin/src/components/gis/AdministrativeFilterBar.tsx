@@ -30,6 +30,7 @@ type Props = {
   onDistrictSelect?: (districtName: string) => void;
   isCompact?: boolean;
   className?: string;
+  fixedProvince?: string | null;
   fixedDistrict?: string | null;
   totalResults?: number;
   isLoadingResults?: boolean;
@@ -43,22 +44,29 @@ export default function AdministrativeFilterBar({
   onDistrictSelect,
   isCompact = false,
   className = '',
+  fixedProvince,
   fixedDistrict,
   totalResults,
   isLoadingResults = false,
   onReset,
 }: Props) {
-  const { managedDistrict: authManagedDistrict } = useAuth();
+  const {
+    managedProvince: authManagedProvince,
+    managedDistrict: authManagedDistrict,
+  } = useAuth();
+  const lockedProvince =
+    fixedProvince !== undefined ? fixedProvince : authManagedProvince;
   const lockedDistrict =
     fixedDistrict !== undefined ? fixedDistrict : authManagedDistrict;
 
   const activeValues = useMemo<AdministrativeFilterValues>(() => {
     const raw = values || filters || {};
-    if (lockedDistrict) {
-      return { ...raw, district: lockedDistrict };
-    }
-    return raw;
-  }, [values, filters, lockedDistrict]);
+    return {
+      ...raw,
+      ...(lockedProvince ? { province: lockedProvince } : {}),
+      ...(lockedDistrict ? { district: lockedDistrict } : {}),
+    };
+  }, [values, filters, lockedProvince, lockedDistrict]);
 
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +106,8 @@ export default function AdministrativeFilterBar({
     async function loadHierarchy() {
       try {
         setLoading(true);
-        const res = await fetchAdministrativeHierarchy();
+        const scopeKey = `${lockedProvince || ''}:${lockedDistrict || ''}`;
+        const res = await fetchAdministrativeHierarchy(scopeKey);
         if (isMounted && Array.isArray(res?.provinces)) {
           setProvinces(res.provinces);
         }
@@ -116,18 +125,21 @@ export default function AdministrativeFilterBar({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [lockedProvince, lockedDistrict]);
 
-  // Sync locked district to parent state if not already set
+  // Sync locked province/district to parent state if not already set
   useEffect(() => {
     const raw = values || filters || {};
-    if (lockedDistrict && raw.district !== lockedDistrict) {
+    const needProvinceSync = Boolean(lockedProvince && raw.province !== lockedProvince);
+    const needDistrictSync = Boolean(lockedDistrict && raw.district !== lockedDistrict);
+    if (needProvinceSync || needDistrictSync) {
       onChange({
         ...raw,
-        district: lockedDistrict,
+        ...(lockedProvince ? { province: lockedProvince } : {}),
+        ...(lockedDistrict ? { district: lockedDistrict } : {}),
       });
     }
-  }, [lockedDistrict, values, filters, onChange]);
+  }, [lockedProvince, lockedDistrict, values, filters, onChange]);
 
   // Selected province data
   const currentProvince = useMemo(() => {
@@ -173,6 +185,9 @@ export default function AdministrativeFilterBar({
 
   // Handlers for cascading selects
   const handleProvinceChange = (provinceName: string) => {
+    if (lockedProvince) {
+      return;
+    }
     setLocalRoadName('');
     onChange({
       province: provinceName,
@@ -237,7 +252,7 @@ export default function AdministrativeFilterBar({
     setLocalRoadName('');
     isInternalRoadChangeRef.current = true;
     onChange({
-      province: '',
+      province: lockedProvince || '',
       district: lockedDistrict || '',
       ward: '',
       roadName: '',
@@ -246,7 +261,7 @@ export default function AdministrativeFilterBar({
   };
 
   const hasFilterActive = Boolean(
-    activeValues.province ||
+    (!lockedProvince && activeValues.province) ||
     activeValues.ward ||
     activeValues.roadName ||
     localRoadName.trim() ||
@@ -275,14 +290,33 @@ export default function AdministrativeFilterBar({
         </div>
 
         {/* 1. Tỉnh / Thành phố */}
-        {provinces.length > 1 ? (
+        {lockedProvince ? (
+          <div style={selectWrapperStyle}>
+            <select
+              value={lockedProvince}
+              disabled
+              style={{
+                ...styles.select,
+                ...styles.selectLocked,
+              }}
+              title={`Vùng quản lý cố định: ${lockedProvince}`}
+            >
+              <option value={lockedProvince}>
+                🗺️ {lockedProvince} (Vùng quản lý)
+              </option>
+            </select>
+          </div>
+        ) : provinces.length > 0 ? (
           <div style={selectWrapperStyle}>
             <select
               value={activeValues.province || ''}
               onChange={(e) => handleProvinceChange(e.target.value)}
-              style={styles.select}
+              style={{
+                ...styles.select,
+                ...(activeValues.province ? styles.selectActive : null),
+              }}
               disabled={loading}
-              title="Chọn Tỉnh / Thành phố"
+              title="Chọn Tỉnh / Thành phố (Khoanh vùng bản đồ)"
             >
               <option value="">Tất cả Tỉnh/TP</option>
               {provinces.map((p) => (

@@ -4,6 +4,11 @@ import sqlite3
 from typing import Any
 
 from app.config import get_settings
+from app.modules.auth.dependencies import _infer_province_from_district
+from app.provinces_data import (
+    build_province_sql_clause,
+    normalize_province_name,
+)
 from app.modules.reports.repository_analytics import ReportAnalyticsMixin
 from app.modules.reports.repository_constants import (
     AUTO_RELEASE_WINDOW,
@@ -491,9 +496,10 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
                 )
 
         if province and province.strip():
-            prov = province.strip()
-            where_clauses.append("(LOWER(TRIM(COALESCE(reports.province, ''))) LIKE ?)")
-            params.append(f"%{prov.lower()}%")
+            prov_clause, prov_params = build_province_sql_clause(province, "reports")
+            if prov_clause:
+                where_clauses.append(prov_clause)
+                params.extend(prov_params)
 
         if district and district.strip():
             d = district.strip()
@@ -564,6 +570,10 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         raw_ai_result = row["detections_json"] if isinstance(row["detections_json"], dict) else json.loads(row["detections_json"])
         row_keys = row.keys() if hasattr(row, "keys") else ()
 
+        raw_district = row["district"] if "district" in row_keys else None
+        raw_province = row["province"] if "province" in row_keys else None
+        effective_province = normalize_province_name(raw_province) or _infer_province_from_district(raw_district) or raw_province
+
         base_payload = {
             "id": row["id"],
             "image_url": self.settings.build_public_upload_url(row["image_path"]),
@@ -576,8 +586,8 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             "corrected_damage_type": row["corrected_damage_type"],
             "road_name": row["road_name"] if "road_name" in row_keys else None,
             "ward": row["ward"] if "ward" in row_keys else None,
-            "district": row["district"] if "district" in row_keys else None,
-            "province": row["province"] if "province" in row_keys else None,
+            "district": raw_district,
+            "province": effective_province,
             "formatted_address": row["formatted_address"] if "formatted_address" in row_keys else None,
             "ai_status": row["ai_status"],
             "status": row["normalized_status"] or self._normalize_status(row["status"]),

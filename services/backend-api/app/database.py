@@ -228,6 +228,9 @@ def init_database() -> None:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
                 connection.execute("CREATE EXTENSION IF NOT EXISTS postgis_topology;")
                 connection.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS managed_province VARCHAR(128);")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_users_managed_province ON users(managed_province);")
+            connection.commit()
         return
 
     with get_connection() as connection:
@@ -282,6 +285,7 @@ def init_database() -> None:
                 phone TEXT,
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL,
+                managed_province TEXT,
                 managed_district TEXT,
                 managed_ward TEXT,
                 auth_revoked_at TEXT,
@@ -417,6 +421,8 @@ def init_database() -> None:
         }
         if "auth_revoked_at" not in user_columns:
             connection.execute("ALTER TABLE users ADD COLUMN auth_revoked_at TEXT")
+        if "managed_province" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN managed_province TEXT")
         if "managed_district" not in user_columns:
             connection.execute("ALTER TABLE users ADD COLUMN managed_district TEXT")
         if "managed_ward" not in user_columns:

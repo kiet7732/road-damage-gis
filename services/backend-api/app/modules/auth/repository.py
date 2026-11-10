@@ -239,6 +239,7 @@ class AuthRepository:
             email=row["email"],
             phone=row["phone"] if "phone" in keys else None,
             role=row["role"],
+            managedProvince=row["managed_province"] if "managed_province" in keys else None,
             managedDistrict=row["managed_district"] if "managed_district" in keys else None,
             managedWard=row["managed_ward"] if "managed_ward" in keys else None,
             isActive=is_active,

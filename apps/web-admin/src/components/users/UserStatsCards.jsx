@@ -45,8 +45,10 @@ export default function UserStatsCards({ stats = {} }) {
           <FiShield size={22} color="#7C3AED" />
         </div>
         <div>
-          <div style={styles.statVal}>{stats.total_officers ?? '—'}</div>
-          <div style={styles.statLabel}>Cán bộ địa bàn</div>
+          <div style={styles.statVal}>
+            {(stats.total_province_officers ?? 0) + (stats.total_officers ?? 0)}
+          </div>
+          <div style={styles.statLabel}>Quản lý Tỉnh & Địa bàn</div>
         </div>
       </div>
 

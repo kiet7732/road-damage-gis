@@ -45,7 +45,8 @@ export default function UsersManagementPage() {
     email: '',
     password: '',
     phone: '',
-    role: 'field_engineer',
+    role: 'province_officer',
+    managedProvince: 'Bình Dương',
     managedDistrict: '',
     managedWard: '',
   });
@@ -53,6 +54,7 @@ export default function UsersManagementPage() {
     fullName: '',
     phone: '',
     role: 'field_engineer',
+    managedProvince: '',
     managedDistrict: '',
     managedWard: '',
   });
@@ -109,6 +111,11 @@ export default function UsersManagementPage() {
       return;
     }
 
+    if (createForm.role === 'province_officer' && !createForm.managedProvince?.trim()) {
+      setActionError('Vui lòng chọn vùng Tỉnh / Thành phố quản lý cho Quản trị viên cấp tỉnh.');
+      return;
+    }
+
     setActionLoading(true);
     setActionError('');
     try {
@@ -117,7 +124,8 @@ export default function UsersManagementPage() {
         field_engineer: 'Kỹ sư hiện trường',
         reporter: 'Người phản ánh (Citizen)',
         district_officer: 'Cán bộ địa bàn',
-        admin: 'Quản trị viên',
+        province_officer: 'Quản trị viên cấp tỉnh',
+        admin: 'Quản trị viên hệ thống',
       };
       showToast(`Đã tạo thành công tài khoản ${roleDisplayNames[createForm.role] || 'người dùng'}!`);
       setIsCreateModalOpen(false);
@@ -126,7 +134,8 @@ export default function UsersManagementPage() {
         email: '',
         password: '',
         phone: '',
-        role: 'field_engineer',
+        role: 'province_officer',
+        managedProvince: 'Bình Dương',
         managedDistrict: '',
         managedWard: '',
       });
@@ -206,6 +215,7 @@ export default function UsersManagementPage() {
       fullName: user.fullName || user.full_name || '',
       phone: user.phone || '',
       role: user.role || 'field_engineer',
+      managedProvince: user.managedProvince || user.managed_province || '',
       managedDistrict: user.managedDistrict || user.managed_district || '',
       managedWard: user.managedWard || user.managed_ward || '',
     });
@@ -226,7 +236,8 @@ export default function UsersManagementPage() {
       email: '',
       password: '',
       phone: '',
-      role: 'field_engineer',
+      role: 'province_officer',
+      managedProvince: 'Bình Dương',
       managedDistrict: '',
       managedWard: '',
     });

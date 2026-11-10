@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 EMAIL_PATTERN = re.compile(r"^\S+@\S+\.\S+$")
 PHONE_PATTERN = re.compile(r"^(\+84|0)[0-9]{9,10}$")
-ALLOWED_ROLES = {"admin", "district_officer", "field_engineer", "reporter"}
+ALLOWED_ROLES = {"admin", "system_admin", "province_officer", "district_officer", "field_engineer", "reporter"}
 
 
 class AdminUserItemResponse(BaseModel):
@@ -16,6 +16,8 @@ class AdminUserItemResponse(BaseModel):
     email: str
     phone: str | None = None
     role: str
+    managedProvince: str | None = None
+    managed_province: str | None = None
     managedDistrict: str | None = None
     managed_district: str | None = None
     managedWard: str | None = None
@@ -32,6 +34,7 @@ class AdminUserItemResponse(BaseModel):
     def sync_field_aliases(cls, data: Any) -> Any:
         if isinstance(data, dict):
             full_name = data.get("fullName") or data.get("full_name") or ""
+            province = data.get("managedProvince") or data.get("managed_province")
             district = data.get("managedDistrict") or data.get("managed_district")
             ward = data.get("managedWard") or data.get("managed_ward")
             is_active_val = data.get("isActive") if "isActive" in data else data.get("is_active")
@@ -41,6 +44,8 @@ class AdminUserItemResponse(BaseModel):
 
             data["fullName"] = full_name
             data["full_name"] = full_name
+            data["managedProvince"] = province
+            data["managed_province"] = province
             data["managedDistrict"] = district
             data["managed_district"] = district
             data["managedWard"] = ward
@@ -59,6 +64,7 @@ class AdminUserStatsResponse(BaseModel):
     total_engineers: int = 0
     total_reporters: int = 0
     total_officers: int = 0
+    total_province_officers: int = 0
     total_admins: int = 0
     total_active: int = 0
     total_locked: int = 0
@@ -78,6 +84,7 @@ class CreateAdminUserRequest(BaseModel):
     password: str = Field(min_length=6, max_length=120)
     phone: str | None = Field(default=None, max_length=20)
     role: str = Field(default="field_engineer")
+    managedProvince: str | None = Field(default=None, max_length=100)
     managedDistrict: str | None = Field(default=None, max_length=100)
     managedWard: str | None = Field(default=None, max_length=100)
 
@@ -122,6 +129,7 @@ class UpdateAdminUserRequest(BaseModel):
     fullName: str | None = Field(default=None, min_length=2, max_length=120)
     phone: str | None = Field(default=None, max_length=20)
     role: str | None = None
+    managedProvince: str | None = Field(default=None, max_length=100)
     managedDistrict: str | None = Field(default=None, max_length=100)
     managedWard: str | None = Field(default=None, max_length=100)
 

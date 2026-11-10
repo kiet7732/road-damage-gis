@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_GIS_CENTER,
   fetchAdminReportsGis,
+  fetchProvinceBoundaryGis,
   fetchReportClustersGis,
   getMapErrorMessage,
 } from '../../services/mapAdminService';
@@ -21,6 +22,8 @@ import MapToolbar from '../../components/gis/MapToolbar';
 import { useAuth } from '../../hooks/useAuth';
 import {
   DISTRICT_CENTERS,
+  PROVINCE_CENTERS,
+  PROVINCE_BOUNDARIES_FALLBACK,
   DEFAULT_FILTERS,
   SELECTED_REPORT_FOCUS_ZOOM,
   MAP_REALTIME_REFRESH_DEBOUNCE_MS,
@@ -31,14 +34,15 @@ import {
 
 export default function DamageMapPage() {
   const navigate = useNavigate();
-  const { managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict } = useAuth();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [adminFilters, setAdminFilters] = useState(() => ({
-    province: '',
+    province: managedProvince || '',
     district: managedDistrict || '',
     ward: '',
     roadName: '',
   }));
+  const [provinceBoundaryGeoJson, setProvinceBoundaryGeoJson] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [focusNonce, setFocusNonce] = useState(0);
   const [fitResultsNonce, setFitResultsNonce] = useState(1);
@@ -97,6 +101,73 @@ export default function DamageMapPage() {
       });
     }
   }, []);
+
+  const activeProvinceForBoundary = managedProvince || adminFilters.province || '';
+
+  const handleFitProvinceBoundary = useCallback((targetProvince, boundaryData) => {
+    const bbox =
+      boundaryData?.bbox ||
+      PROVINCE_CENTERS[targetProvince]?.bbox ||
+      PROVINCE_BOUNDARIES_FALLBACK[targetProvince]?.bbox;
+    const normalized = normalizeBounds(bbox);
+    if (normalized) {
+      setFitBoundsRequest({
+        bounds: normalized,
+        nonce: Date.now(),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (managedProvince && adminFilters.province !== managedProvince) {
+      setAdminFilters((current) => ({
+        ...current,
+        province: managedProvince,
+      }));
+    }
+  }, [managedProvince, adminFilters.province]);
+
+  useEffect(() => {
+    if (!activeProvinceForBoundary) {
+      setProvinceBoundaryGeoJson(null);
+      return undefined;
+    }
+
+    let isCancelled = false;
+    const fallback = PROVINCE_BOUNDARIES_FALLBACK[activeProvinceForBoundary] || null;
+    if (fallback) {
+      setProvinceBoundaryGeoJson(fallback);
+    }
+
+    fetchProvinceBoundaryGis(activeProvinceForBoundary)
+      .then((res) => {
+        if (!isCancelled && res && Array.isArray(res.features) && res.features.length > 0) {
+          setProvinceBoundaryGeoJson(res);
+          if (!adminFilters.district && !adminFilters.ward && !adminFilters.roadName) {
+            handleFitProvinceBoundary(activeProvinceForBoundary, res);
+          }
+        }
+      })
+      .catch(() => {
+        if (!isCancelled && fallback) {
+          setProvinceBoundaryGeoJson(fallback);
+        }
+      });
+
+    if (fallback && !adminFilters.district && !adminFilters.ward && !adminFilters.roadName) {
+      handleFitProvinceBoundary(activeProvinceForBoundary, fallback);
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeProvinceForBoundary,
+    adminFilters.district,
+    adminFilters.ward,
+    adminFilters.roadName,
+    handleFitProvinceBoundary,
+  ]);
 
   useEffect(() => {
     if (managedDistrict && adminFilters.district !== managedDistrict) {
@@ -207,12 +278,12 @@ export default function DamageMapPage() {
     if (filters.status) count++;
     if (filters.damageType) count++;
     if (filters.periodDays) count++;
-    if (adminFilters.province) count++;
+    if (adminFilters.province && adminFilters.province !== (managedProvince || '')) count++;
     if (adminFilters.district && adminFilters.district !== (managedDistrict || '')) count++;
     if (adminFilters.ward) count++;
     if (adminFilters.roadName?.trim()) count++;
     return count;
-  }, [filters, adminFilters, managedDistrict]);
+  }, [filters, adminFilters, managedProvince, managedDistrict]);
   const hasActiveFilters = activeFilterCount > 0;
 
   useEffect(() => {
@@ -280,38 +351,46 @@ export default function DamageMapPage() {
   const handleResetAllFilters = useCallback(() => {
     setFilters(DEFAULT_FILTERS);
     setAdminFilters({
-      province: '',
+      province: managedProvince || '',
       district: managedDistrict || '',
       ward: '',
       roadName: '',
     });
     setSelectedReport(null);
-    setFitBoundsRequest({
-      bounds: zoomToBounds(
-        { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
-        DEFAULT_GIS_CENTER.zoom,
-      ),
-      nonce: Date.now(),
-    });
+    if (managedProvince) {
+      handleFitProvinceBoundary(managedProvince, provinceBoundaryGeoJson);
+    } else {
+      setFitBoundsRequest({
+        bounds: zoomToBounds(
+          { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
+          DEFAULT_GIS_CENTER.zoom,
+        ),
+        nonce: Date.now(),
+      });
+    }
     setFitResultsNonce((value) => value + 1);
-  }, [managedDistrict]);
+  }, [managedProvince, managedDistrict, handleFitProvinceBoundary, provinceBoundaryGeoJson]);
 
   const handleResetAdminFilters = useCallback(() => {
     setAdminFilters({
-      province: '',
+      province: managedProvince || '',
       district: managedDistrict || '',
       ward: '',
       roadName: '',
     });
     setSelectedReport(null);
-    setFitBoundsRequest({
-      bounds: zoomToBounds(
-        { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
-        DEFAULT_GIS_CENTER.zoom,
-      ),
-      nonce: Date.now(),
-    });
-  }, [managedDistrict]);
+    if (managedProvince) {
+      handleFitProvinceBoundary(managedProvince, provinceBoundaryGeoJson);
+    } else {
+      setFitBoundsRequest({
+        bounds: zoomToBounds(
+          { latitude: DEFAULT_GIS_CENTER.latitude, longitude: DEFAULT_GIS_CENTER.longitude },
+          DEFAULT_GIS_CENTER.zoom,
+        ),
+        nonce: Date.now(),
+      });
+    }
+  }, [managedProvince, managedDistrict, handleFitProvinceBoundary, provinceBoundaryGeoJson]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -504,6 +583,7 @@ export default function DamageMapPage() {
                 values={adminFilters}
                 onChange={setAdminFilters}
                 onDistrictSelect={handleDistrictSelect}
+                fixedProvince={managedProvince}
                 fixedDistrict={managedDistrict}
                 totalResults={mapItems.length}
                 isLoadingResults={isLoading || isRefreshing}
@@ -546,6 +626,13 @@ export default function DamageMapPage() {
           <WebGisMap
             items={mapItems}
             serverClusters={useServerDBSCAN ? serverClusters : null}
+            provinceBoundary={provinceBoundaryGeoJson}
+            managedProvince={managedProvince}
+            onFitProvinceBoundary={() => {
+              if (activeProvinceForBoundary) {
+                handleFitProvinceBoundary(activeProvinceForBoundary, provinceBoundaryGeoJson);
+              }
+            }}
             initialLoading={isLoading}
             refreshing={isRefreshing}
             error={isError ? error : ''}

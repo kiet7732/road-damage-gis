@@ -12,7 +12,7 @@ import AdministrativeDistributionChart from '../../components/dashboard/Administ
 import TopDamagedRoadsChart from '../../components/dashboard/TopDamagedRoadsChart';
 import WardProgressTable from '../../components/dashboard/WardProgressTable';
 import { UI_COLORS } from '../../constants/statusColors';
-import { ALL_DISTRICTS } from '../../constants/statisticsConstants';
+import { ALL_DISTRICTS, PROVINCE_DISTRICTS } from '../../constants/statisticsConstants';
 import useAsyncData from '../../hooks/useAsyncData';
 import { useAuth } from '../../hooks/useAuth';
 import {
@@ -22,7 +22,7 @@ import {
 } from '../../services/dashboardService';
 
 export default function DashboardPage() {
-  const { managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict } = useAuth();
   const [selectedDistrict, setSelectedDistrict] = useState(managedDistrict || '');
 
   useEffect(() => {
@@ -31,19 +31,26 @@ export default function DashboardPage() {
     }
   }, [managedDistrict, selectedDistrict]);
 
+  const activeProvince = managedProvince || null;
   const activeDistrict = managedDistrict || selectedDistrict || null;
+  const districtOptions = useMemo(() => {
+    if (activeProvince && PROVINCE_DISTRICTS[activeProvince]) {
+      return PROVINCE_DISTRICTS[activeProvince];
+    }
+    return ALL_DISTRICTS;
+  }, [activeProvince]);
 
   const loadAllDashboardData = useCallback(async () => {
     try {
       const [dash, admin] = await Promise.all([
-        fetchAdminDashboard({ district: activeDistrict }),
-        fetchAdministrativeStats({ district: activeDistrict }),
+        fetchAdminDashboard({ province: activeProvince, district: activeDistrict }),
+        fetchAdministrativeStats({ province: activeProvince, district: activeDistrict }),
       ]);
       return { dashboard: dash, adminStats: admin };
     } catch (requestError) {
       throw new Error(getDashboardErrorMessage(requestError));
     }
-  }, [activeDistrict]);
+  }, [activeProvince, activeDistrict]);
 
   const {
     data: dataBundle,
@@ -53,7 +60,7 @@ export default function DashboardPage() {
     isSuccess,
     error,
     reload,
-  } = useAsyncData(loadAllDashboardData, [activeDistrict]);
+  } = useAsyncData(loadAllDashboardData, [activeProvince, activeDistrict]);
 
   const dashboard = dataBundle?.dashboard;
   const adminStats = dataBundle?.adminStats;
@@ -81,27 +88,39 @@ export default function DashboardPage() {
           subtitle={
             managedDistrict
               ? `Theo dõi tình hình tiếp nhận và xử lý sự cố hạ tầng giao thông trên địa bàn ${managedDistrict}.`
-              : 'Theo dõi nhanh tình hình tiếp nhận và xử lý phản ánh hư hỏng mặt đường toàn thành phố.'
+              : managedProvince
+              ? `Theo dõi tình hình tiếp nhận và xử lý sự cố hạ tầng giao thông trong vùng quản lý Tỉnh/TP ${managedProvince}.`
+              : 'Theo dõi nhanh tình hình tiếp nhận và xử lý phản ánh hư hỏng mặt đường toàn hệ thống.'
           }
         />
 
-        {/* Bộ lọc địa bàn cho Super Admin */}
+        {/* Bộ lọc địa bàn cho Quản trị viên hệ thống & Quản trị viên cấp tỉnh */}
         {!managedDistrict ? (
-          <div style={styles.districtFilterWrap}>
-            <FiFilter size={16} color={UI_COLORS.primary} />
-            <span style={styles.filterLabel}>Khu vực:</span>
-            <select
-              value={selectedDistrict}
-              onChange={(e) => setSelectedDistrict(e.target.value)}
-              style={styles.districtSelect}
-            >
-              <option value="">Toàn thành phố (Tất cả Quận/Huyện)</option>
-              {ALL_DISTRICTS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {managedProvince ? (
+              <div style={styles.lockedDistrictBadge}>
+                <FiMapPin size={16} color={UI_COLORS.primary} />
+                <span>Vùng quản lý: <strong>{managedProvince}</strong></span>
+              </div>
+            ) : null}
+            <div style={styles.districtFilterWrap}>
+              <FiFilter size={16} color={UI_COLORS.primary} />
+              <span style={styles.filterLabel}>Đơn vị cấp huyện/TP:</span>
+              <select
+                value={selectedDistrict}
+                onChange={(e) => setSelectedDistrict(e.target.value)}
+                style={styles.districtSelect}
+              >
+                <option value="">
+                  {managedProvince ? `Toàn tỉnh/TP ${managedProvince}` : 'Toàn hệ thống (Tất cả Quận/Huyện/TP)'}
                 </option>
-              ))}
-            </select>
+                {districtOptions.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         ) : (
           <div style={styles.lockedDistrictBadge}>

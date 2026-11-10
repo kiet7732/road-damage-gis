@@ -71,15 +71,17 @@ const mapGeoJsonFeatureToMapItem = (feature) => {
 
 let cachedHierarchy = null;
 let cachedHierarchyPromise = null;
+let cachedHierarchyScopeKey = null;
 
-export async function fetchAdministrativeHierarchy() {
-  if (cachedHierarchy) {
+export async function fetchAdministrativeHierarchy(scopeKey = '') {
+  if (cachedHierarchy && cachedHierarchyScopeKey === scopeKey) {
     return cachedHierarchy;
   }
-  if (cachedHierarchyPromise) {
+  if (cachedHierarchyPromise && cachedHierarchyScopeKey === scopeKey) {
     return cachedHierarchyPromise;
   }
 
+  cachedHierarchyScopeKey = scopeKey;
   cachedHierarchyPromise = api
     .get('/gis/administrative-hierarchy')
     .then((response) => {
@@ -93,6 +95,25 @@ export async function fetchAdministrativeHierarchy() {
     });
 
   return cachedHierarchyPromise;
+}
+
+const provinceBoundaryCache = new Map();
+
+export async function fetchProvinceBoundaryGis(province) {
+  const normalizedKey = (province || '').trim();
+  if (!normalizedKey) {
+    return null;
+  }
+  if (provinceBoundaryCache.has(normalizedKey)) {
+    return provinceBoundaryCache.get(normalizedKey);
+  }
+  const response = await api.get('/gis/boundaries/province', {
+    params: { province: normalizedKey },
+  });
+  if (response && Array.isArray(response.features) && response.features.length > 0) {
+    provinceBoundaryCache.set(normalizedKey, response);
+  }
+  return response;
 }
 
 export async function fetchReportClustersGis({

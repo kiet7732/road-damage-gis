@@ -60,7 +60,7 @@ export default function UserTable({
               <tr style={styles.tableHeaderRow}>
                 <th style={styles.th}>Người dùng</th>
                 <th style={styles.th}>Vai trò</th>
-                <th style={styles.th}>Địa bàn quản lý</th>
+                <th style={styles.th}>Vùng / Địa bàn quản lý</th>
                 <th style={styles.th}>Số điện thoại</th>
                 <th style={styles.th}>Trạng thái</th>
                 <th style={styles.th}>Ngày tạo</th>
@@ -114,14 +114,19 @@ export default function UserTable({
                       </div>
                     </td>
 
-                    {/* District */}
+                    {/* Province / District */}
                     <td style={styles.td}>
                       {u.role === 'reporter' ? (
                         <span style={styles.textMuted}>—</span>
+                      ) : u.managedProvince || u.managed_province ? (
+                        <span style={styles.districtBadge}>
+                          🗺️ Tỉnh/TP: {u.managedProvince || u.managed_province}
+                          {u.managedDistrict ? ` • ${u.managedDistrict}` : ''}
+                        </span>
                       ) : u.managedDistrict ? (
                         <span style={styles.districtBadge}>{u.managedDistrict}</span>
                       ) : (
-                        <span style={styles.textMuted}>Toàn thành phố</span>
+                        <span style={styles.textMuted}>Toàn hệ thống</span>
                       )}
                     </td>
 

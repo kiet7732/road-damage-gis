@@ -6,6 +6,12 @@ from typing import Any
 from datetime import datetime, timedelta
 
 from app.config import Settings
+from app.modules.auth.dependencies import _infer_province_from_district
+from app.modules.gis.provinces_data import (
+    PROVINCE_DISTRICT_HIERARCHY,
+    build_province_sql_clause,
+    normalize_province_name,
+)
 from app.modules.gis.schemas import (
     AdministrativeHierarchyResponse,
     DistrictHierarchyItem,
@@ -175,9 +181,10 @@ class GisRepository:
             params.append(normalized_damage_type)
 
         if province and province.strip():
-            p = province.strip().lower()
-            where_clauses.append("(LOWER(TRIM(COALESCE(reports.province, ''))) = ? OR LOWER(TRIM(COALESCE(reports.province, ''))) LIKE ?)")
-            params.extend([p, f"%{p}%"])
+            prov_clause, prov_params = build_province_sql_clause(province, "reports")
+            if prov_clause:
+                where_clauses.append(prov_clause)
+                params.extend(prov_params)
 
         if district and district.strip():
             d = district.strip().lower()
@@ -419,6 +426,7 @@ class GisRepository:
     def get_map_points(
         self,
         *,
+        province: str | None = None,
         district: str | None = None,
         ward: str | None = None,
         road_name: str | None = None,
@@ -427,6 +435,7 @@ class GisRepository:
         limit: int = 1500,
     ) -> ReportMapListResponse:
         where_clauses, params = self._build_search_filters(
+            province=province,
             district=district,
             ward=ward,
             road_name=road_name,
@@ -448,9 +457,20 @@ class GisRepository:
         items = [self._row_to_map_point(row) for row in rows]
         return ReportMapListResponse(items=items, total=len(items))
 
-    def get_administrative_hierarchy(self, *, district: str | None = None) -> AdministrativeHierarchyResponse:
+    def get_administrative_hierarchy(
+        self,
+        *,
+        province: str | None = None,
+        district: str | None = None,
+    ) -> AdministrativeHierarchyResponse:
         where_clauses = ["district IS NOT NULL", "TRIM(district) <> ''"]
         params: list[object] = []
+        if province and province.strip():
+            prov_clause, prov_params = build_province_sql_clause(province, "reports")
+            if prov_clause:
+                where_clauses.append(prov_clause)
+                params.extend(prov_params)
+
         if district and district.strip():
             d = district.strip()
             where_clauses.append("(TRIM(district) = ? OR LOWER(TRIM(district)) = ?)")
@@ -462,7 +482,7 @@ class GisRepository:
             SELECT
                 CASE
                     WHEN TRIM(COALESCE(province, '')) <> '' THEN TRIM(province)
-                    WHEN TRIM(COALESCE(district, '')) IN ('Thủ Dầu Một', 'Thuận An', 'Dĩ An', 'Bến Cát', 'Tân Uyên', 'Bắc Tân Uyên', 'Bàu Bàng', 'Phú Giáo', 'Dầu Tiếng', 'Thành phố Thủ Dầu Một', 'Thành phố Thuận An', 'Thành phố Dĩ An', 'Thị xã Bến Cát', 'Thành phố Tân Uyên') THEN 'Bình Dương'
+                    WHEN TRIM(COALESCE(district, '')) IN ('Thủ Dầu Một', 'Thuận An', 'Dĩ An', 'Bến Cát', 'Tân Uyên', 'Bắc Tân Uyên', 'Bàu Bàng', 'Phú Giáo', 'Dầu Tiếng', 'Thành phố Thủ Dầu Một', 'Thành phố Thuận An', 'Thành phố Dĩ An', 'Thị xã Bến Cát', 'Thành phố Bến Cát', 'Thành phố Tân Uyên') THEN 'Bình Dương'
                     ELSE 'TP. Hồ Chí Minh'
                 END AS province,
                 TRIM(district) AS district,
@@ -478,8 +498,12 @@ class GisRepository:
         ).fetchall()
 
         tree: dict[str, dict[str, dict[str, Any]]] = {}
+        canonical_filter_prov = normalize_province_name(province)
+        if canonical_filter_prov and canonical_filter_prov in PROVINCE_DISTRICT_HIERARCHY and not district:
+            tree[canonical_filter_prov] = {}
+
         for row in rows:
-            prov = row["province"]
+            prov = normalize_province_name(row["province"]) or row["province"]
             dist = row["district"]
             ward = row["ward"]
             road = row["road_name"]

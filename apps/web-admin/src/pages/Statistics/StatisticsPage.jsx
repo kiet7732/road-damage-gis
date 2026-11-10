@@ -23,7 +23,7 @@ import StatisticsRankingsPanel from '../../components/statistics/StatisticsRanki
 import NoDamageReportsView from '../../components/statistics/NoDamageReportsView';
 
 export default function StatisticsPage() {
-  const { managedDistrict } = useAuth();
+  const { managedProvince, managedDistrict } = useAuth();
   const [viewMode, setViewMode] = useState('no-damage-reports'); // 'no-damage-reports' | 'analytics'
   const [selectedDistrict, setSelectedDistrict] = useState(managedDistrict || '');
   const [selectedPreset, setSelectedPreset] = useState('30days');
@@ -44,6 +44,7 @@ export default function StatisticsPage() {
     }
   }, [managedDistrict, selectedDistrict]);
 
+  const activeProvince = managedProvince || null;
   const activeDistrict = managedDistrict || selectedDistrict || null;
 
   // Xác định khoảng ngày hiệu lực
@@ -66,11 +67,13 @@ export default function StatisticsPage() {
     try {
       const [dash, admin] = await Promise.all([
         fetchAdminDashboard({
+          province: activeProvince || undefined,
           district: activeDistrict,
           from_date: effectiveFromDate || undefined,
           to_date: effectiveToDate || undefined,
         }),
         fetchAdministrativeStats({
+          province: activeProvince || undefined,
           district: activeDistrict,
           from_date: effectiveFromDate || undefined,
           to_date: effectiveToDate || undefined,
@@ -80,7 +83,7 @@ export default function StatisticsPage() {
     } catch (err) {
       throw new Error(getDashboardErrorMessage(err));
     }
-  }, [activeDistrict, effectiveFromDate, effectiveToDate]);
+  }, [activeProvince, activeDistrict, effectiveFromDate, effectiveToDate]);
 
   const {
     data: bundle,
@@ -89,7 +92,7 @@ export default function StatisticsPage() {
     isError,
     error,
     reload,
-  } = useAsyncData(loadStatsData, [activeDistrict, effectiveFromDate, effectiveToDate]);
+  } = useAsyncData(loadStatsData, [activeProvince, activeDistrict, effectiveFromDate, effectiveToDate]);
 
   const dashboard = bundle?.dashboard;
   const adminStats = bundle?.adminStats;
@@ -116,6 +119,7 @@ export default function StatisticsPage() {
       const res = await fetchAdminReports({
         page: 1,
         pageSize: 2000,
+        province: activeProvince || '',
         district: activeDistrict || '',
         fromDate: effectiveFromDate || '',
         toDate: effectiveToDate || '',

@@ -36,7 +36,19 @@ from app.modules.auth.security import (
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-ADMIN_ROLES = {"admin", "super_admin", "manager", "staff", "officer", "can_bo", "district_officer"}
+ADMIN_ROLES = {
+    "admin",
+    "system_admin",
+    "super_admin",
+    "manager",
+    "province_officer",
+    "provincial_admin",
+    "provincial_manager",
+    "staff",
+    "officer",
+    "can_bo",
+    "district_officer",
+}
 APP_ROLES = {"reporter", "citizen", "user", "field_engineer", "engineer", "engineer_staff"}
 
 AUTH_CONTEXT_HEADER = "X-Auth-Context"

@@ -50,11 +50,29 @@ class SpatialRbacTests(unittest.TestCase):
         )
         self.general_admin = AuthUser(
             id="usr-general-admin",
-            fullName="Quản trị viên Trung tâm",
+            fullName="Quản trị viên hệ thống",
             email="admin@roadgis.local",
             role="admin",
             managedDistrict=None,
             phone="0908888888",
+        )
+        self.province_officer_bd = AuthUser(
+            id="usr-province-bd",
+            fullName="Quản trị viên cấp tỉnh Bình Dương",
+            email="province.bd@roadgis.local",
+            role="province_officer",
+            managedProvince="Bình Dương",
+            managedDistrict=None,
+            phone="0907777777",
+        )
+        self.province_officer_hcm = AuthUser(
+            id="usr-province-hcm",
+            fullName="Quản trị viên cấp tỉnh TP.HCM",
+            email="province.hcm@roadgis.local",
+            role="province_officer",
+            managedProvince="TP. Hồ Chí Minh",
+            managedDistrict=None,
+            phone="0906666666",
         )
 
         # Seed reports
@@ -102,6 +120,7 @@ class SpatialRbacTests(unittest.TestCase):
         self,
         *,
         report_id: str | None = None,
+        province: str = "Thành phố Hồ Chí Minh",
         district: str = "Quận 1",
         ward: str = "Phường Bến Nghé",
         road_name: str = "Đường Lê Duẩn",
@@ -157,8 +176,8 @@ class SpatialRbacTests(unittest.TestCase):
                 road_name,
                 ward,
                 district,
-                "Thành phố Hồ Chí Minh",
-                f"{road_name}, {ward}, {district}, TP. Hồ Chí Minh",
+                province,
+                f"{road_name}, {ward}, {district}, {province}",
                 "2026-09-14T10:00:00Z",
                 "2026-09-14T10:00:00Z",
             ),
@@ -299,6 +318,78 @@ class SpatialRbacTests(unittest.TestCase):
         self.assertIn("Quận 1", districts)
         self.assertIn("Quận 3", districts)
         self.assertIn("Quận 7", districts)
+
+    def test_ac04_province_officer_spatial_isolation_and_boundary_geojson(self) -> None:
+        """AC-04: Quản trị viên cấp tỉnh chỉ được xem/thao tác trong tỉnh được phân công và lấy được GeoJSON ranh giới tỉnh."""
+        # Thêm 2 phản ánh thuộc Tỉnh Bình Dương (TP. Bến Cát và TP. Thủ Dầu Một)
+        bd_rep1_id = self._insert_report(
+            province="Tỉnh Bình Dương",
+            district="Thành phố Bến Cát",
+            ward="Phường Mỹ Phước",
+            road_name="Quốc lộ 13",
+            status="pending",
+            latitude=11.1352,
+            longitude=106.6074,
+        )
+        bd_rep2_id = self._insert_report(
+            province="Bình Dương",
+            district="Thành phố Thủ Dầu Một",
+            ward="Phường Phú Cường",
+            road_name="Đại lộ Bình Dương",
+            status="processing",
+            latitude=10.9805,
+            longitude=106.6719,
+        )
+
+        app.dependency_overrides[get_current_user] = lambda: self.province_officer_bd
+        app.dependency_overrides[get_admin_user] = lambda: self.province_officer_bd
+        client = TestClient(app)
+
+        # 1. Quản trị viên cấp tỉnh Bình Dương chỉ nhìn thấy 2 phản ánh của Bình Dương
+        resp_bd_reports = client.get("/api/admin/reports")
+        self.assertEqual(resp_bd_reports.status_code, 200)
+        self.assertEqual(resp_bd_reports.json()["total"], 2)
+        returned_ids = {item["id"] for item in resp_bd_reports.json()["items"]}
+        self.assertEqual(returned_ids, {bd_rep1_id, bd_rep2_id})
+
+        # 2. Dashboard tự động chỉ tính toán trong Tỉnh Bình Dương (2 phản ánh)
+        resp_bd_dash = client.get("/api/admin/dashboard")
+        self.assertEqual(resp_bd_dash.status_code, 200)
+        self.assertEqual(resp_bd_dash.json()["total_reports"], 2)
+
+        # 3. Cố tình truy vấn sang tỉnh khác (TP. Hồ Chí Minh) -> 403 Forbidden
+        resp_other_prov = client.get("/api/admin/reports?province=TP. Hồ Chí Minh")
+        self.assertEqual(resp_other_prov.status_code, 403)
+
+        # 4. Cố tình truy cập hoặc cập nhật báo cáo thuộc Quận 1 (TP.HCM) -> 403 Forbidden
+        resp_detail_hcm = client.get(f"/api/admin/reports/{self.q1_rep1_id}")
+        self.assertEqual(resp_detail_hcm.status_code, 403)
+        resp_patch_hcm = client.patch(
+            f"/api/admin/reports/{self.q1_rep1_id}/status",
+            json={"status": "processing", "admin_note": "Ngoài vùng"},
+        )
+        self.assertEqual(resp_patch_hcm.status_code, 403)
+
+        # 5. Xem và cập nhật báo cáo thuộc Bình Dương -> 200 OK
+        resp_detail_bd = client.get(f"/api/admin/reports/{bd_rep1_id}")
+        self.assertEqual(resp_detail_bd.status_code, 200)
+        resp_patch_bd = client.patch(
+            f"/api/admin/reports/{bd_rep1_id}/status",
+            json={"status": "processing", "admin_note": "Sở GTVT Bình Dương tiếp nhận"},
+        )
+        self.assertEqual(resp_patch_bd.status_code, 200)
+
+        # 6. Lấy GeoJSON khoanh vùng ranh giới Tỉnh Bình Dương -> 200 OK, Polygon hợp lệ
+        resp_boundary = client.get("/api/gis/boundaries/province")
+        self.assertEqual(resp_boundary.status_code, 200)
+        b_data = resp_boundary.json()
+        self.assertEqual(b_data["province"], "Bình Dương")
+        self.assertEqual(len(b_data["features"]), 1)
+        self.assertEqual(b_data["features"][0]["geometry"]["type"], "Polygon")
+
+        # 7. Cố tình gọi API lịch sử của Mobile Reporter -> 403 Forbidden (Web-only role)
+        resp_mobile_hist = client.get("/api/reports/history")
+        self.assertEqual(resp_mobile_hist.status_code, 403)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,19 @@
 from collections.abc import Generator
 
+from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.config import Settings, get_settings
 from app.database import get_connection
 from app.modules.auth.dependencies import (
     enforce_spatial_district_access,
+    enforce_spatial_province_access,
+    enforce_web_only_role_restriction,
     get_admin_user,
     get_current_user,
 )
 from app.modules.auth.schemas import AuthUser
+from app.modules.gis.provinces_data import get_province_boundary_geojson
 from app.modules.gis.repository import GisRepository
 from app.modules.gis.schemas import (
     AdministrativeHierarchyResponse,
@@ -36,15 +40,30 @@ def get_gis_service(
 
 @router.get("/gis/administrative-hierarchy", response_model=AdministrativeHierarchyResponse)
 def get_administrative_hierarchy(
+    province: str | None = Query(default=None),
     current_user: AuthUser = Depends(get_current_user),
     service: GisService = Depends(get_gis_service),
 ) -> AdministrativeHierarchyResponse:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, None)
-    return service.get_administrative_hierarchy(district=effective_district)
+    return service.get_administrative_hierarchy(
+        province=effective_province,
+        district=effective_district,
+    )
+
+
+@router.get("/gis/boundaries/province")
+def get_province_boundary(
+    province: str | None = Query(default=None),
+    current_user: AuthUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    effective_province = enforce_spatial_province_access(current_user, province)
+    return get_province_boundary_geojson(effective_province)
 
 
 @router.get("/gis/points", response_model=ReportMapListResponse)
 def get_map_points(
+    province: str | None = Query(default=None),
     district: str | None = Query(default=None),
     ward: str | None = Query(default=None),
     road_name: str | None = Query(default=None),
@@ -54,8 +73,10 @@ def get_map_points(
     current_user: AuthUser = Depends(get_current_user),
     service: GisService = Depends(get_gis_service),
 ) -> ReportMapListResponse:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     return service.get_map_points(
+        province=effective_province,
         district=effective_district,
         ward=ward,
         road_name=road_name,
@@ -80,6 +101,7 @@ def search_mobile_gis_reports(
     current_user: AuthUser = Depends(get_current_user),
     service: GisService = Depends(get_gis_service),
 ) -> ReportGeoJsonFeatureCollection:
+    enforce_web_only_role_restriction(current_user)
     bbox = None
     if min_latitude is not None and min_longitude is not None and max_latitude is not None and max_longitude is not None:
         bbox = (min_longitude, min_latitude, max_longitude, max_latitude)
@@ -113,6 +135,7 @@ def search_admin_gis_reports(
     current_user: AuthUser = Depends(get_admin_user),
     service: GisService = Depends(get_gis_service),
 ) -> ReportGeoJsonFeatureCollection:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     bbox = None
     if min_latitude is not None and min_longitude is not None and max_latitude is not None and max_longitude is not None:
@@ -121,7 +144,7 @@ def search_admin_gis_reports(
     return service.search_report_features(
         status=status_filter,
         damage_type=damage_type,
-        province=province,
+        province=effective_province,
         district=effective_district,
         ward=ward,
         road_name=road_name,
@@ -142,12 +165,13 @@ def get_gis_report_clusters(
     current_user: AuthUser = Depends(get_current_user),
     service: GisService = Depends(get_gis_service),
 ) -> list[GisReportClusterItem]:
+    effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     return service.get_report_clusters(
         eps=eps,
         min_points=min_points,
         status=status_filter,
-        province=province,
+        province=effective_province,
         district=effective_district,
         ward=ward,
     )

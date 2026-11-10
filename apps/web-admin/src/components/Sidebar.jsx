@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { FiAlertCircle, FiBarChart2, FiGrid, FiList, FiMap, FiUser, FiUsers, FiX } from 'react-icons/fi';
 import { UI_COLORS } from '../constants/statusColors';
+import { useAuth } from '../hooks/useAuth';
 
 const SIDEBAR_ICON_SIZE = 24;
 
@@ -10,11 +11,14 @@ const menuItems = [
   { label: 'Tất cả báo cáo', path: '/reports', icon: FiList },
   { label: 'AI phát hiện hư hỏng', path: '/reports/manual-review', icon: FiAlertCircle },
   { label: 'AI không phát hiện hư hỏng', path: '/statistics', icon: FiBarChart2 },
-  { label: 'Quản lý tài khoản', path: '/users', icon: FiUsers },
+  { label: 'Quản lý tài khoản', path: '/users', icon: FiUsers, systemAdminOnly: true },
   { label: 'Tài khoản', path: '/account', icon: FiUser },
 ];
 
 export default function Sidebar({ drawer = false, onClose }) {
+  const { isSuperAdmin } = useAuth();
+  const visibleMenuItems = menuItems.filter((item) => !item.systemAdminOnly || isSuperAdmin);
+
   return (
     <aside className={drawer ? 'road-sidebar-drawer' : undefined} style={styles.sidebar}>
       <div style={styles.brand}>
@@ -32,7 +36,7 @@ export default function Sidebar({ drawer = false, onClose }) {
       </div>
 
       <nav style={styles.menu} aria-label="Điều hướng quản trị">
-        {menuItems.map((item) => {
+        {visibleMenuItems.map((item) => {
           const Icon = item.icon;
 
           return (

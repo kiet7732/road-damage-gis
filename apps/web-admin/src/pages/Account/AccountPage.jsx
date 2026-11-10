@@ -48,9 +48,20 @@ export default function AccountPage() {
   const [changeSuccess, setChangeSuccess] = useState('');
 
   const displayName = currentUser?.fullName?.trim() || currentUser?.name?.trim() || 'Tài khoản';
-  const displayRole = currentUser?.role?.trim() || 'Chưa có vai trò';
+  const rawRole = (currentUser?.role || '').trim().toLowerCase();
+  const displayRole =
+    rawRole === 'province_officer' || rawRole === 'provincial_admin' || rawRole === 'provincial_manager'
+      ? 'Quản trị viên cấp tỉnh'
+      : rawRole === 'district_officer' || rawRole === 'officer'
+      ? 'Cán bộ địa bàn'
+      : rawRole === 'admin' || rawRole === 'system_admin' || rawRole === 'super_admin'
+      ? 'Quản trị viên hệ thống'
+      : currentUser?.role?.trim() || 'Chưa có vai trò';
   const displayEmail = currentUser?.email?.trim() || 'Chưa có email';
   const avatarText = displayName.charAt(0).toUpperCase();
+  const managedProvince = currentUser?.managed_province || currentUser?.managedProvince;
+  const managedDistrict = currentUser?.managed_district || currentUser?.managedDistrict;
+  const managedWard = currentUser?.managed_ward || currentUser?.managedWard;
 
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
@@ -151,15 +162,13 @@ export default function AccountPage() {
                 <span style={styles.metaValue}>{currentUser.phone || 'Chưa cập nhật'}</span>
               </div>
               <div style={styles.metaRow}>
-                <span style={styles.metaLabel}>Địa bàn quản lý:</span>
+                <span style={styles.metaLabel}>Vùng / Địa bàn quản lý:</span>
                 <span style={styles.metaHighlight}>
-                  {currentUser.managed_district || currentUser.managedDistrict
-                    ? `${currentUser.managed_district || currentUser.managedDistrict}${
-                        currentUser.managed_ward || currentUser.managedWard
-                          ? ` - ${currentUser.managed_ward || currentUser.managedWard}`
-                          : ''
-                      }`
-                    : 'Toàn thành phố (Không giới hạn)'}
+                  {managedProvince
+                    ? `Vùng: Tỉnh / TP ${managedProvince}${managedDistrict ? ` - ${managedDistrict}` : ''}`
+                    : managedDistrict
+                    ? `${managedDistrict}${managedWard ? ` - ${managedWard}` : ''}`
+                    : 'Toàn hệ thống (Không giới hạn vùng)'}
                 </span>
               </div>
               <div style={styles.metaRow}>

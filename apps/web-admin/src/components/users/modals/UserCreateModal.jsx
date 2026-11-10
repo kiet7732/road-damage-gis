@@ -6,9 +6,10 @@ import {
   FiUser,
   FiShield,
   FiAward,
+  FiMapPin,
 } from 'react-icons/fi';
 import { UI_COLORS } from '../../../constants/statusColors';
-import { DISTRICT_OPTIONS } from '../../../constants/userConstants';
+import { DISTRICT_OPTIONS, PROVINCE_OPTIONS } from '../../../constants/userConstants';
 
 const ROLE_MODAL_CONFIG = {
   field_engineer: {
@@ -28,6 +29,7 @@ const ROLE_MODAL_CONFIG = {
     emailPlaceholder: 'engineer@roadgis.local',
     namePlaceholder: 'Ví dụ: Nguyễn Văn Hoàng',
     submitText: 'Tạo tài khoản Kỹ sư',
+    hasProvince: false,
     hasDistrict: true,
   },
   reporter: {
@@ -40,17 +42,18 @@ const ROLE_MODAL_CONFIG = {
     bannerText: (
       <span>
         <strong>Lưu ý:</strong> Tài khoản Người phản ánh dành cho người dân báo cáo sự cố, hư hỏng
-        mặt đường trên toàn thành phố. Người dân không bị giới hạn theo địa bàn phụ trách.
+        mặt đường trên toàn hệ thống. Người dân không bị giới hạn theo vùng hay địa bàn phụ trách.
       </span>
     ),
     emailPlaceholder: 'nguoidan@gmail.com',
     namePlaceholder: 'Ví dụ: Nguyễn Văn An',
     submitText: 'Tạo tài khoản Người dân',
+    hasProvince: false,
     hasDistrict: false,
   },
   district_officer: {
     title: 'Tạo tài khoản Cán bộ địa bàn',
-    subtitle: 'Cấp tài khoản mới để truy cập và xử lý tác nghiệp Web Admin',
+    subtitle: 'Cấp tài khoản mới để truy cập và xử lý tác nghiệp Web Admin theo Quận/Huyện/TP',
     bannerIcon: FiShield,
     bannerColor: '#7C3AED',
     bannerBg: '#F5F3FF',
@@ -58,31 +61,53 @@ const ROLE_MODAL_CONFIG = {
     bannerText: (
       <span>
         <strong>Lưu ý:</strong> Tài khoản Cán bộ địa bàn có quyền tiếp nhận, xử lý và phân công
-        báo cáo sự cố trong phạm vi địa bàn được phân công phụ trách.
+        báo cáo sự cố trong phạm vi địa bàn cấp huyện/thành phố được phân công phụ trách.
       </span>
     ),
-    emailPlaceholder: 'canbo@quan1.tphcm.gov.vn',
+    emailPlaceholder: 'canbo@thudaumot.gov.vn',
     namePlaceholder: 'Ví dụ: Trần Văn Bình',
     submitText: 'Tạo tài khoản Cán bộ',
+    hasProvince: false,
     hasDistrict: true,
   },
+  province_officer: {
+    title: 'Tạo tài khoản Quản trị viên cấp tỉnh',
+    subtitle: 'Cấp tài khoản quản lý toàn diện trong vùng Tỉnh/Thành phố được phân công (Chỉ dùng trên Web)',
+    bannerIcon: FiMapPin,
+    bannerColor: '#0284C7',
+    bannerBg: '#E0F2FE',
+    bannerBorder: '#BAE6FD',
+    bannerText: (
+      <span>
+        <strong>Lưu ý:</strong> Quản trị viên cấp tỉnh có đầy đủ chức năng quản trị (xem/lọc báo cáo,
+        duyệt khảo sát, điều phối kỹ sư, bản đồ khoanh vùng ranh giới GIS) nhưng <strong>chỉ được
+        thao tác trong vùng Tỉnh/TP được cấp</strong> và chỉ sử dụng trên Web Admin.
+      </span>
+    ),
+    emailPlaceholder: 'province.binhduong@roadgis.local',
+    namePlaceholder: 'Ví dụ: Phạm Quốc Tuấn (Sở Xây dựng / GTVT)',
+    submitText: 'Tạo Quản trị viên cấp tỉnh',
+    hasProvince: true,
+    hasDistrict: false,
+  },
   admin: {
-    title: 'Tạo tài khoản Quản trị viên',
-    subtitle: 'Cấp tài khoản quản trị hệ thống với đầy đủ phân quyền Web Admin',
+    title: 'Tạo tài khoản Quản trị viên hệ thống',
+    subtitle: 'Cấp tài khoản quản trị hệ thống cao nhất với toàn quyền không giới hạn vùng',
     bannerIcon: FiAward,
     bannerColor: '#B45309',
     bannerBg: '#FFFBEB',
     bannerBorder: '#FDE68A',
     bannerText: (
       <span>
-        <strong>Lưu ý:</strong> Quản trị viên có toàn quyền kiểm soát hệ thống, quản lý tài khoản
-        người dùng và xem báo cáo dữ liệu toàn thành phố.
+        <strong>Lưu ý:</strong> Quản trị viên hệ thống có toàn quyền kiểm soát hệ thống, cấp tài khoản
+        cho Quản trị viên cấp tỉnh và thao tác dữ liệu trên toàn quốc mà không bị giới hạn vùng.
       </span>
     ),
-    emailPlaceholder: 'admin@roadgis.local',
+    emailPlaceholder: 'sysadmin@roadgis.local',
     namePlaceholder: 'Ví dụ: Lê Thị Mai',
-    submitText: 'Tạo tài khoản Quản trị',
-    hasDistrict: true,
+    submitText: 'Tạo Quản trị viên hệ thống',
+    hasProvince: false,
+    hasDistrict: false,
   },
 };
 
@@ -100,14 +125,19 @@ export default function UserCreateModal({
   const currentRole = createForm.role || 'field_engineer';
   const cfg = ROLE_MODAL_CONFIG[currentRole] || ROLE_MODAL_CONFIG.field_engineer;
   const BannerIcon = cfg.bannerIcon;
-  const isReporter = currentRole === 'reporter';
+  const isNoScopeRole = currentRole === 'reporter' || currentRole === 'admin' || currentRole === 'system_admin';
+  const isProvinceRole = currentRole === 'province_officer';
 
   const handleRoleChange = (e) => {
     const newRole = e.target.value;
     setCreateForm({
       ...createForm,
       role: newRole,
-      ...(newRole === 'reporter' ? { managedDistrict: '', managedWard: '' } : {}),
+      ...(newRole === 'reporter' || newRole === 'admin' || newRole === 'system_admin'
+        ? { managedProvince: '', managedDistrict: '', managedWard: '' }
+        : newRole === 'province_officer'
+        ? { managedProvince: createForm.managedProvince || 'Bình Dương', managedDistrict: '', managedWard: '' }
+        : {}),
     });
   };
 
@@ -156,7 +186,7 @@ export default function UserCreateModal({
         )}
 
         <form onSubmit={onSubmit} style={styles.modalForm}>
-          {isReporter ? (
+          {isNoScopeRole ? (
             <div style={styles.formGroup}>
               <label style={styles.label}>
                 Vai trò <span style={styles.req}>*</span>
@@ -168,11 +198,53 @@ export default function UserCreateModal({
                 style={styles.input}
                 required
               >
+                <option value="province_officer">Quản trị viên cấp tỉnh (Web Admin - Theo vùng Tỉnh/TP)</option>
+                <option value="admin">Quản trị viên hệ thống (Toàn quyền hệ thống)</option>
+                <option value="district_officer">Cán bộ địa bàn (Web Admin - Theo Quận/Huyện/TP)</option>
                 <option value="field_engineer">Kỹ sư hiện trường (Mobile App)</option>
-                <option value="reporter">Người phản ánh (Citizen)</option>
-                <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
-                <option value="admin">Quản trị viên (Web Admin)</option>
+                <option value="reporter">Người phản ánh (Citizen - Mobile App)</option>
               </select>
+            </div>
+          ) : isProvinceRole ? (
+            <div style={styles.formRow}>
+              <div style={styles.formCol}>
+                <label style={styles.label}>
+                  Vai trò <span style={styles.req}>*</span>
+                </label>
+                <select
+                  id="new-user-role"
+                  value={createForm.role}
+                  onChange={handleRoleChange}
+                  style={styles.input}
+                  required
+                >
+                  <option value="province_officer">Quản trị viên cấp tỉnh (Web Admin)</option>
+                  <option value="admin">Quản trị viên hệ thống (Toàn quyền)</option>
+                  <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
+                  <option value="field_engineer">Kỹ sư hiện trường (Mobile App)</option>
+                  <option value="reporter">Người phản ánh (Citizen)</option>
+                </select>
+              </div>
+
+              <div style={styles.formCol}>
+                <label style={styles.label}>
+                  Vùng quản lý (Tỉnh / Thành phố) <span style={styles.req}>*</span>
+                </label>
+                <select
+                  id="new-user-province"
+                  value={createForm.managedProvince || ''}
+                  onChange={(e) => setCreateForm({ ...createForm, managedProvince: e.target.value })}
+                  style={styles.input}
+                  required
+                >
+                  <option value="">-- Chọn Tỉnh / Thành phố --</option>
+                  {PROVINCE_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           ) : (
             <div style={styles.formRow}>
@@ -187,10 +259,11 @@ export default function UserCreateModal({
                   style={styles.input}
                   required
                 >
+                  <option value="province_officer">Quản trị viên cấp tỉnh (Web Admin)</option>
+                  <option value="admin">Quản trị viên hệ thống (Toàn quyền)</option>
+                  <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
                   <option value="field_engineer">Kỹ sư hiện trường (Mobile App)</option>
                   <option value="reporter">Người phản ánh (Citizen)</option>
-                  <option value="district_officer">Cán bộ địa bàn (Web Admin)</option>
-                  <option value="admin">Quản trị viên (Web Admin)</option>
                 </select>
               </div>
 
@@ -204,7 +277,7 @@ export default function UserCreateModal({
                   onChange={(e) => setCreateForm({ ...createForm, managedDistrict: e.target.value })}
                   style={styles.input}
                 >
-                  <option value="">Toàn thành phố / Không giới hạn</option>
+                  <option value="">Toàn vùng / Không giới hạn</option>
                   {DISTRICT_OPTIONS.map((d) => (
                     <option key={d} value={d}>
                       {d}

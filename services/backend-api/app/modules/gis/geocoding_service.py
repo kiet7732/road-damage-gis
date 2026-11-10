@@ -65,6 +65,15 @@ class VietnamAddressParser:
         "thanh pho hai phong": "Hải Phòng",
         "tp hải phòng": "Hải Phòng",
         "hai phong": "Hải Phòng",
+        "tỉnh bình dương": "Bình Dương",
+        "tinh binh duong": "Bình Dương",
+        "bình dương": "Bình Dương",
+        "binh duong": "Bình Dương",
+        "tỉnh đồng nai": "Đồng Nai",
+        "tinh dong nai": "Đồng Nai",
+        "đồng nai": "Đồng Nai",
+        "tỉnh bà rịa - vũng tàu": "Bà Rịa - Vũng Tàu",
+        "bà rịa - vũng tàu": "Bà Rịa - Vũng Tàu",
     }
 
     DISTRICT_PREPENDS = {
@@ -80,6 +89,17 @@ class VietnamAddressParser:
         "tân bình": "Quận Tân Bình",
         "tân phú": "Quận Tân Phú",
         "thủ đức": "Thành phố Thủ Đức",
+        "thủ dầu một": "Thành phố Thủ Dầu Một",
+        "thuận an": "Thành phố Thuận An",
+        "dĩ an": "Thành phố Dĩ An",
+        "bến cát": "Thành phố Bến Cát",
+        "thị xã bến cát": "Thành phố Bến Cát",
+        "tân uyên": "Thành phố Tân Uyên",
+        "thị xã tân uyên": "Thành phố Tân Uyên",
+        "bàu bàng": "Huyện Bàu Bàng",
+        "bắc tân uyên": "Huyện Bắc Tân Uyên",
+        "dầu tiếng": "Huyện Dầu Tiếng",
+        "phú giáo": "Huyện Phú Giáo",
     }
 
     @classmethod
