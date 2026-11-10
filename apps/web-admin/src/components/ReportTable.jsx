@@ -3,7 +3,12 @@ import { FiDownload, FiEye, FiMapPin, FiRefreshCw, FiSearch } from 'react-icons/
 import { DAMAGE_TYPES, DAMAGE_TYPE_COLORS, UI_COLORS } from '../constants/statusColors';
 import { exportReports, getReportImageUrl } from '../services/reportAdminService';
 import { formatAccuracy, formatCoordinate, formatDateTime } from '../utils/formatters';
-import { getEffectiveDamageType, getPrimaryConfidence } from '../utils/reportDamage';
+import {
+  getEffectiveDamageType,
+  getPrimaryConfidence,
+  getReportPriorityAssessment,
+  PRIORITY_FILTER_OPTIONS,
+} from '../utils/reportDamage';
 import EmptyState from './EmptyState';
 import ExportModal from './ExportModal';
 import Panel from './Panel';
@@ -40,6 +45,7 @@ export default function ReportTable({
   onSearchSubmit,
   onStatusChange,
   onDamageTypeChange,
+  onPriorityLevelChange,
   onResetFilters,
   onPageChange,
   onRetry,
@@ -107,6 +113,18 @@ export default function ReportTable({
               ))}
             </select>
 
+            <select
+              value={filters?.priorityLevel ?? ''}
+              onChange={(event) => onPriorityLevelChange?.(event.target.value)}
+              style={styles.select}
+            >
+              {PRIORITY_FILTER_OPTIONS.map((option) => (
+                <option key={option.value || 'all-priority'} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
             <WebButton
               variant="secondary"
               onClick={() => setIsExportModalOpen(true)}
@@ -158,6 +176,7 @@ export default function ReportTable({
                   <th style={styles.th}>Mã phản ánh</th>
                   <th style={styles.th}>Ảnh</th>
                   <th style={styles.th}>Loại hư hỏng</th>
+                  <th style={styles.th}>Mức độ ưu tiên (S_priority)</th>
                   <th style={styles.th}>Vị trí & Địa giới</th>
                   <th style={styles.th}>Trạng thái</th>
                   <th style={styles.th}>Thời điểm ghi nhận</th>
@@ -169,6 +188,7 @@ export default function ReportTable({
                   const damageType = getEffectiveDamageType(report);
                   const damageMeta = DAMAGE_TYPES[damageType];
                   const confidence = getPrimaryConfidence(report);
+                  const priorityAssessment = getReportPriorityAssessment(report);
 
                   return (
                     <tr key={report?.id ?? report?.image_path ?? `${report?.latitude}-${report?.longitude}`} style={styles.tr}>
@@ -207,6 +227,38 @@ export default function ReportTable({
                               Độ tin cậy nhận dạng: {confidence ? `${confidence}%` : 'Chưa có kết quả'}
                             </div>
                           </div>
+                        </div>
+                      </td>
+
+                      <td style={styles.td}>
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '4px 10px',
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 900,
+                                color: priorityAssessment.color,
+                                background: priorityAssessment.backgroundColor,
+                                border: `1px solid ${priorityAssessment.borderColor}`,
+                              }}
+                            >
+                              {priorityAssessment.effectiveLevelLabel}
+                            </span>
+                          </div>
+                          {priorityAssessment.totalDetectionsCount > 0 ? (
+                            <div style={styles.muted}>
+                              S_priority = <strong>{priorityAssessment.scorePercent}%</strong> ({priorityAssessment.score.toFixed(2)})
+                              {priorityAssessment.topDetections.length === 2
+                                ? ` [${priorityAssessment.topDetections[0].confidencePercent}% + ${priorityAssessment.topDetections[1].confidencePercent}%]`
+                                : ` [1 nhãn: ${priorityAssessment.topDetections[0]?.confidencePercent ?? 0}%]`}
+                            </div>
+                          ) : (
+                            <div style={styles.muted}>Chưa có dữ liệu điểm AI</div>
+                          )}
                         </div>
                       </td>
 

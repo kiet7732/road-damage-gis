@@ -1,4 +1,11 @@
 import { DAMAGE_TYPES } from '../constants/statusColors';
+import {
+  computePriorityAssessment,
+  PRIORITY_FILTER_OPTIONS,
+  PRIORITY_LEVEL_METADATA,
+} from '../../../../packages/shared-constants/src/fieldDomainMetadata';
+
+export { PRIORITY_FILTER_OPTIONS, PRIORITY_LEVEL_METADATA };
 
 export function getAiPredictedDamageType(report) {
   const detections = report?.ai_result?.detections;
@@ -35,4 +42,8 @@ export function getPrimaryConfidence(report) {
   }
 
   return Math.round(confidence * 100);
+}
+
+export function getReportPriorityAssessment(report) {
+  return computePriorityAssessment(report);
 }

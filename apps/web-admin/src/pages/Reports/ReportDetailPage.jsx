@@ -22,6 +22,7 @@ import {
   updateAdminReportStatus,
 } from '../../services/reportDetailService';
 import ReportInfoCard from '../../components/report-detail/ReportInfoCard';
+import ReportPriorityAssessmentCard from '../../components/report-detail/ReportPriorityAssessmentCard';
 import ReportSurveyEvidenceCard from '../../components/report-detail/ReportSurveyEvidenceCard';
 import ReportStatusActionCard from '../../components/report-detail/ReportStatusActionCard';
 import ReportTimelineCard from '../../components/report-detail/ReportTimelineCard';
@@ -337,6 +338,8 @@ export default function ReportDetailPage() {
           <Panel title="Ảnh hiện trường và vùng nhận diện AI">
             <ReportImageInspector report={activeReport} />
           </Panel>
+
+          <ReportPriorityAssessmentCard report={activeReport} />
 
           <ReportInfoCard report={activeReport} />
 

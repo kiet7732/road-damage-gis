@@ -308,6 +308,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         exclude_repaired: bool = False,
         status: str | None = None,
         damage_type: str | None = None,
+        priority_level: str | None = None,
         search: str | None = None,
         ai_status: str | None = None,
         has_damage_detected: bool | None = None,
@@ -336,6 +337,52 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
         )
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        normalized_priority = (priority_level or "").strip().lower()
+
+        if normalized_priority:
+            try:
+                all_rows = self.connection.execute(
+                    f"""
+                    {SQL_REPORT_SELECT}
+                    {where_sql}
+                    ORDER BY reports.created_at DESC
+                    """,
+                    params,
+                ).fetchall()
+            except sqlite3.OperationalError as exc:
+                if "no such table: users" in str(exc).lower():
+                    all_rows = self.connection.execute(
+                        f"""
+                        SELECT
+                            reports.*,
+                            {SQL_STATUS_EXPRESSION} AS normalized_status,
+                            {SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION} AS effective_damage_type,
+                            {SQL_PRIMARY_CONFIDENCE_EXPRESSION} AS primary_confidence,
+                            NULL AS assigned_engineer_name,
+                            NULL AS claimed_by_engineer_name
+                        FROM reports
+                        {where_sql}
+                        ORDER BY reports.created_at DESC
+                        """,
+                        params,
+                    ).fetchall()
+                else:
+                    raise
+
+            all_reports = [
+                self._row_to_report(row, include_admin_fields=include_admin_fields)
+                for row in all_rows
+            ]
+            filtered_reports = [
+                rep
+                for rep in all_reports
+                if rep.priority_assessment
+                and (
+                    rep.priority_assessment.effective_level_code == normalized_priority
+                    or rep.priority_assessment.level_code == normalized_priority
+                )
+            ]
+            return filtered_reports[offset : offset + limit], len(filtered_reports)
 
         total_row = self.connection.execute(
             f"""

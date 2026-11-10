@@ -1,5 +1,9 @@
 import { api, ApiClientError, getApiBaseURL } from '../../../../packages/api-client/src';
 import { getFieldEngineerUiLabel, getFieldWorkflowStatus } from '../../../../packages/shared-constants/src/engineerLabels';
+import {
+  computePriorityAssessment,
+  type PriorityAssessmentData,
+} from '../../../../packages/shared-constants/src/fieldDomainMetadata';
 import { normalizeRoadDamagePublicStatus, getRoadDamageType } from '../../../../packages/shared-constants/src/roadDamage';
 import type { DamageTypeCode, ReportStatus } from '../../../../packages/mobile-shared/src/theme';
 import type { Report } from '../../../../packages/mobile-shared/src/roadDamageTypes';
@@ -91,6 +95,8 @@ export type EngineerTask = Report & {
   aiSummary: string;
   aiSuggestedDamageLabel?: string | null;
   aiDetectionCount: number;
+  aiDetections: BackendDamageDetection[];
+  priorityAssessment: PriorityAssessmentData;
   assignedEngineerName?: string | null;
   claimedByEngineerName?: string | null;
   claimExpiresAt?: string | null;
@@ -398,6 +404,8 @@ const mapBackendReportToEngineerTask = (report: BackendEngineerReport): Engineer
       normalizeTitleText(report.ai_result?.detections?.[0]?.class_name) ||
       null,
     aiDetectionCount: Number(report.ai_result?.detections_count) || report.ai_result?.detections?.length || 0,
+    aiDetections: Array.isArray(report.ai_result?.detections) ? report.ai_result.detections : [],
+    priorityAssessment: computePriorityAssessment(report, report.field_priority),
     confidence: report.ai_result?.detections?.[0]?.confidence ?? null,
     gps: {
       latitude: report.latitude,
@@ -472,6 +480,17 @@ async function fetchEngineerScope(scope: EngineerTaskScope, limit = 50): Promise
   });
 
   const items = Array.isArray(response?.items) ? response.items.map(mapBackendReportToEngineerTask) : [];
+
+  if (scope === 'available' || scope === 'assigned') {
+    items.sort((a, b) => {
+      const lvlA = a.priorityAssessment?.effectiveLevelNumber ?? 99;
+      const lvlB = b.priorityAssessment?.effectiveLevelNumber ?? 99;
+      if (lvlA !== lvlB) {
+        return lvlA - lvlB;
+      }
+      return (b.priorityAssessment?.score ?? 0) - (a.priorityAssessment?.score ?? 0);
+    });
+  }
 
   return {
     items,

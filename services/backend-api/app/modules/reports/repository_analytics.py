@@ -1,7 +1,12 @@
+import json
 import sqlite3
 from collections import Counter, defaultdict
 from datetime import date, datetime
 
+from app.modules.reports.priority_calculator import (
+    PRIORITY_LEVEL_METADATA,
+    compute_priority_assessment,
+)
 from app.modules.reports.repository_constants import (
     DAMAGE_LABELS,
     SQL_EFFECTIVE_DAMAGE_TYPE_EXPRESSION,
@@ -105,6 +110,7 @@ class ReportAnalyticsMixin:
         total_reports = len(rows)
         status_counter: Counter[str] = Counter()
         damage_counter: Counter[str] = Counter()
+        priority_counter: Counter[str] = Counter()
         timeline_map: dict[str, dict[str, int]] = defaultdict(
             lambda: {
                 "total": 0,
@@ -121,6 +127,17 @@ class ReportAnalyticsMixin:
             damage_type = self._get_effective_damage_type_from_row(row)
             if damage_type in DAMAGE_LABELS:
                 damage_counter[damage_type] += 1
+
+            try:
+                raw_ai = row["detections_json"]
+                ai_dict = raw_ai if isinstance(raw_ai, dict) else json.loads(raw_ai)
+                row_keys = row.keys() if hasattr(row, "keys") else ()
+                f_prio = row["field_priority"] if "field_priority" in row_keys else None
+                assessment = compute_priority_assessment(ai_dict, field_priority=f_prio)
+                if assessment.effective_level_code in PRIORITY_LEVEL_METADATA:
+                    priority_counter[assessment.effective_level_code] += 1
+            except Exception:
+                pass
 
             created_at = row["created_at"]
             timeline_bucket_key = self._to_timeline_bucket_key(created_at)
@@ -159,6 +176,16 @@ class ReportAnalyticsMixin:
             for damage_key in ("D00", "D10", "D20", "D40")
         ]
 
+        priority_summary = [
+            DashboardChartItem(
+                key=lvl_key,
+                label=PRIORITY_LEVEL_METADATA[lvl_key]["level_label"],
+                value=int(priority_counter.get(lvl_key, 0)),
+                color=PRIORITY_LEVEL_METADATA[lvl_key]["color"],
+            )
+            for lvl_key in ("level_1", "level_2", "level_3", "level_4")
+        ]
+
         timeline = [
             DashboardTimelineItem(
                 date=self._format_timeline_label(date_key),
@@ -175,6 +202,7 @@ class ReportAnalyticsMixin:
             kpis=kpis,
             status_summary=status_summary,
             damage_type_summary=damage_type_summary,
+            priority_summary=priority_summary,
             timeline=timeline,
         )
 

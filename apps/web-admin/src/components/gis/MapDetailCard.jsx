@@ -2,10 +2,15 @@ import { FiClock, FiCpu, FiExternalLink, FiMapPin, FiX } from 'react-icons/fi';
 import { getStatusColor, UI_COLORS } from '../../constants/statusColors';
 import { getMapImageUrl } from '../../services/mapAdminService';
 import { formatConfidence, formatCoordinate, formatDateTime } from '../../utils/formatters';
-import { getEffectiveDamageType, getEffectiveDamageTypeLabel } from '../../utils/reportDamage';
+import {
+  getEffectiveDamageType,
+  getEffectiveDamageTypeLabel,
+  getReportPriorityAssessment,
+} from '../../utils/reportDamage';
 
 export default function MapDetailCard({ selectedReport, onCloseDetail, onOpenDetail }) {
   if (!selectedReport) return null;
+  const priorityAssessment = getReportPriorityAssessment(selectedReport);
 
   return (
     <div style={styles.detailCard}>
@@ -46,6 +51,17 @@ export default function MapDetailCard({ selectedReport, onCloseDetail, onOpenDet
           <span
             style={{
               ...styles.detailStatusBadge,
+              color: priorityAssessment.color,
+              background: priorityAssessment.backgroundColor,
+              borderColor: priorityAssessment.borderColor,
+            }}
+            title={priorityAssessment.formulaText}
+          >
+            {priorityAssessment.effectiveLevelLabel} ({priorityAssessment.scorePercent}%)
+          </span>
+          <span
+            style={{
+              ...styles.detailStatusBadge,
               color: getStatusColor(selectedReport.status).text,
               background: getStatusColor(selectedReport.status).background,
               borderColor: getStatusColor(selectedReport.status).border,
@@ -69,9 +85,9 @@ export default function MapDetailCard({ selectedReport, onCloseDetail, onOpenDet
             <FiClock size={14} />
             {formatDateTime(selectedReport.created_at)}
           </span>
-          <span style={styles.detailMetaItem} title="Độ tin cậy nhận diện AI">
-            <FiCpu size={14} color="#059669" />
-            AI: {formatConfidence(selectedReport.confidence)}
+          <span style={styles.detailMetaItem} title="Điểm gộp ưu tiên S_priority">
+            <FiCpu size={14} color={priorityAssessment.color} />
+            S_priority: {priorityAssessment.scorePercent}% ({priorityAssessment.score.toFixed(2)})
           </span>
         </div>
         {selectedReport.note?.trim() ? (

@@ -1,7 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { getFieldWorkflowStatus } from '../../../../../../packages/shared-constants/src/engineerLabels';
-import { getRoadDamageTypeOption } from '../../../../../../packages/shared-constants/src/fieldDomainMetadata';
+import {
+  computePriorityAssessment,
+  getRoadDamageTypeOption,
+} from '../../../../../../packages/shared-constants/src/fieldDomainMetadata';
 import { AppIcon } from '../../../shared/mobileShared';
 import {
   getEngineerTaskSemanticMeta,
@@ -23,6 +26,7 @@ export default function TaskCard({ task, onPress, onClaim, scope = 'available' }
   const semantic = getEngineerTaskSemanticMeta(task, scope);
   const isClaimable = task.canClaim;
   const damageMeta = getRoadDamageTypeOption(task.type || '');
+  const priorityAssessment = task.priorityAssessment || computePriorityAssessment(task, task.fieldPriority);
 
   // Determine prominent location components
   const hasRoadName = Boolean(task.roadName && task.roadName.trim());
@@ -110,13 +114,31 @@ export default function TaskCard({ task, onPress, onClaim, scope = 'available' }
         ) : null}
       </View>
 
-      {/* Middle Meta: Damage Type & Timestamp */}
+      {/* Middle Meta: Damage Type, Priority Level & Timestamp */}
       <View style={styles.metaRow}>
         <View style={styles.damageChip}>
           <Text style={styles.damageChipText}>
             {task.type ? `${task.type} - ${damageMeta?.label || 'Hư hỏng mặt đường'}` : 'CHƯA PHÂN LOẠI'}
           </Text>
         </View>
+
+        {priorityAssessment.effectiveLevelCode !== 'unrated' ? (
+          <View
+            style={[
+              styles.damageChip,
+              {
+                backgroundColor: priorityAssessment.backgroundColor,
+                borderColor: priorityAssessment.borderColor,
+                borderWidth: 1,
+              },
+            ]}
+          >
+            <Text style={[styles.damageChipText, { color: priorityAssessment.color, fontWeight: '800' }]}>
+              {priorityAssessment.effectiveLevelLabel}
+              {priorityAssessment.scorePercent > 0 ? ` • ${priorityAssessment.scorePercent}%` : ''}
+            </Text>
+          </View>
+        ) : null}
 
         <Text style={styles.timestampText}>
           ⏱ {semantic.timestampLabel}: {semantic.timestampValue}

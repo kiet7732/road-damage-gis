@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { computePriorityAssessment } from '../../../../../../packages/shared-constants/src/fieldDomainMetadata';
 import InfoCard from '../../../components/InfoCard';
 import { colors, damageTypeTheme, radius, spacing, type DamageTypeCode } from '../../../constants/theme';
 import type { ReportAiResult } from '../../../types/roadDamage';
@@ -18,15 +19,17 @@ export default function ConfirmAiPreviewCard({
   previewResult,
   predictionLabel,
 }: ConfirmAiPreviewCardProps) {
+  const priorityAssessment = previewResult ? computePriorityAssessment(previewResult) : null;
+
   return (
     <InfoCard style={styles.compactInfoCard}>
       <View style={styles.aiHeader}>
         <View style={styles.sectionTitleWrap}>
           <Text selectable style={styles.aiTitle}>
-            Kết quả nhận dạng
+            Kết quả nhận dạng & Mức độ ưu tiên
           </Text>
           <Text selectable style={styles.sectionSubtitle}>
-            Gợi ý hư hỏng từ ảnh.
+            Gợi ý hư hỏng và chỉ số ưu tiên S_priority từ ảnh.
           </Text>
         </View>
         {predictedDamageType ? (
@@ -54,7 +57,7 @@ export default function ConfirmAiPreviewCard({
 
       {isPreviewing ? (
         <Text selectable numberOfLines={2} style={styles.aiDescription}>
-          Hệ thống đang phân tích ảnh để gợi ý loại hư hỏng...
+          Hệ thống đang phân tích ảnh để gợi ý loại hư hỏng và tính mức độ ưu tiên...
         </Text>
       ) : null}
 
@@ -72,6 +75,33 @@ export default function ConfirmAiPreviewCard({
           <Text selectable style={styles.aiDescription}>
             {previewResult.message}
           </Text>
+
+          {priorityAssessment && priorityAssessment.levelCode !== 'unrated' ? (
+            <View
+              style={[
+                styles.priorityBox,
+                {
+                  backgroundColor: priorityAssessment.backgroundColor,
+                  borderColor: priorityAssessment.borderColor,
+                },
+              ]}
+            >
+              <View style={styles.priorityTopRow}>
+                <Text selectable style={[styles.priorityTitle, { color: priorityAssessment.color }]}>
+                  {priorityAssessment.levelLabel}
+                </Text>
+                <Text selectable style={[styles.priorityScore, { color: priorityAssessment.color }]}>
+                  S_priority = {priorityAssessment.scorePercent}%
+                </Text>
+              </View>
+              <Text selectable style={styles.priorityFormula}>
+                {priorityAssessment.formulaText}
+              </Text>
+              <Text selectable style={styles.priorityCitizenSummary}>
+                {priorityAssessment.citizenSummary}
+              </Text>
+            </View>
+          ) : null}
         </>
       ) : null}
     </InfoCard>
@@ -132,5 +162,37 @@ const styles = StyleSheet.create({
   },
   aiPrimaryWarningText: {
     color: colors.danger,
+  },
+  priorityBox: {
+    marginTop: 6,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 4,
+  },
+  priorityTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  priorityTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  priorityScore: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  priorityFormula: {
+    color: colors.text,
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  priorityCitizenSummary: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    lineHeight: 17,
   },
 });

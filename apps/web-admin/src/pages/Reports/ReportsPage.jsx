@@ -11,6 +11,7 @@ const DEFAULT_FILTERS = {
   search: '',
   status: '',
   damageType: '',
+  priorityLevel: '',
 };
 
 const PAGE_SIZE = 10;
@@ -45,6 +46,7 @@ export default function ReportsPage({ mode = 'all' }) {
       pageSize: PAGE_SIZE,
       status: appliedFilters.status,
       damageType: appliedFilters.damageType,
+      priorityLevel: appliedFilters.priorityLevel,
       search: appliedFilters.search,
       province: adminFilters.province,
       district: adminFilters.district,
@@ -73,6 +75,7 @@ export default function ReportsPage({ mode = 'all' }) {
     queryState.pageSize,
     queryState.status,
     queryState.damageType,
+    queryState.priorityLevel,
     queryState.search,
     queryState.province,
     queryState.district,
@@ -103,6 +106,12 @@ export default function ReportsPage({ mode = 'all' }) {
     setFilters((current) => ({ ...current, damageType: value }));
     setPage(1);
     setAppliedFilters((current) => ({ ...current, damageType: value }));
+  };
+
+  const handlePriorityLevelChange = (value) => {
+    setFilters((current) => ({ ...current, priorityLevel: value }));
+    setPage(1);
+    setAppliedFilters((current) => ({ ...current, priorityLevel: value }));
   };
 
   const handleAdminFiltersChange = (newFilters) => {
@@ -159,6 +168,7 @@ export default function ReportsPage({ mode = 'all' }) {
         onSearchSubmit={handleSearchSubmit}
         onStatusChange={handleStatusChange}
         onDamageTypeChange={handleDamageTypeChange}
+        onPriorityLevelChange={handlePriorityLevelChange}
         onResetFilters={handleResetFilters}
         onPageChange={setPage}
         onRetry={handleRetry}

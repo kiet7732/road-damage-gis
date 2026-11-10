@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { computePriorityAssessment } from '../../../../../../packages/shared-constants/src/fieldDomainMetadata';
 import { engineerColors, engineerRadius, engineerSpacing } from '../../../styles/engineerTheme';
 import type { EngineerTask } from '../../../services/engineerReportService';
 import { getDamageTypeLabel, getPriorityLabel, getSeverityLabel } from '../utils/engineerTaskUtils';
@@ -14,19 +15,42 @@ export default function TaskAiSurveySummaryCard({
   aiConfidenceText,
   surveyProgressText,
 }: TaskAiSurveySummaryCardProps) {
+  const priorityAssessment = task.priorityAssessment || computePriorityAssessment(task, task.fieldPriority);
+
   return (
     <View style={styles.card}>
-      <Text style={styles.sectionTitle}>HỒ SƠ THẨM ĐỊNH KỸ THUẬT</Text>
+      <Text style={styles.sectionTitle}>HỒ SƠ THẨM ĐỊNH KỸ THUẬT & CHỈ SỐ S_PRIORITY</Text>
 
-      {/* AI suggestion panel */}
-      <View style={styles.aiPanel}>
+      {/* AI suggestion & S_priority panel */}
+      <View
+        style={[
+          styles.aiPanel,
+          {
+            backgroundColor: priorityAssessment.backgroundColor,
+            borderColor: priorityAssessment.borderColor,
+          },
+        ]}
+      >
         <View style={styles.aiHeader}>
-          <Text style={styles.aiTitle}>🤖 KẾT QUẢ AI NHẬN DẠNG</Text>
-          <Text style={styles.aiConfidence}>Độ tin cậy: {aiConfidenceText}</Text>
+          <Text style={[styles.aiTitle, { color: priorityAssessment.color }]}>
+            🤖 ĐÁNH GIÁ ƯU TIÊN AI (S_PRIORITY)
+          </Text>
+          <Text style={[styles.aiConfidence, { color: priorityAssessment.color }]}>
+            S_priority = {priorityAssessment.scorePercent}%
+          </Text>
         </View>
-        <Text style={styles.aiResult}>
-          Loại: <Text style={{ fontWeight: '900' }}>{task.aiSuggestedDamageLabel || 'Không rõ'}</Text> ({task.aiDetectionCount} vùng phát hiện)
+
+        <Text style={[styles.priorityLevelText, { color: priorityAssessment.color }]}>
+          {priorityAssessment.levelLabel} ({priorityAssessment.thresholdText})
         </Text>
+
+        <Text style={styles.aiResult}>
+          Nhãn chính: <Text style={{ fontWeight: '900' }}>{task.aiSuggestedDamageLabel || 'Không rõ'}</Text> ({task.aiDetectionCount} vùng phát hiện • Độ tin cậy cao nhất: {aiConfidenceText})
+        </Text>
+
+        <Text style={styles.formulaText}>{priorityAssessment.formulaText}</Text>
+
+        <Text style={styles.techDescText}>{priorityAssessment.technicalDescription}</Text>
       </View>
 
       {/* Field verified summary */}
@@ -36,7 +60,15 @@ export default function TaskAiSurveySummaryCard({
       </View>
 
       <View style={styles.infoGrid}>
-        <InfoBox label="Mức độ ưu tiên" value={getPriorityLabel(task.fieldPriority)} />
+        <InfoBox
+          label="Mức ưu tiên hiệu lực"
+          value={
+            task.fieldPriority
+              ? `${getPriorityLabel(task.fieldPriority)} (Thực địa)`
+              : `${priorityAssessment.effectiveLevelLabel} (Theo AI)`
+          }
+          highlight
+        />
         <InfoBox label="Ảnh đính kèm" value={`${task.attachments.length} ảnh`} />
       </View>
 
@@ -85,17 +117,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   aiPanel: {
-    padding: 10,
+    padding: 12,
     borderRadius: engineerRadius.xs,
     backgroundColor: '#F1F5F9',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#CBD5E1',
-    gap: 4,
+    gap: 6,
   },
   aiHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 4,
   },
   aiTitle: {
     color: engineerColors.textNavy,
@@ -104,12 +138,30 @@ const styles = StyleSheet.create({
   },
   aiConfidence: {
     color: engineerColors.brandPrimary,
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  priorityLevelText: {
+    fontSize: 14,
     fontWeight: '900',
   },
   aiResult: {
     color: engineerColors.textSecondary,
     fontSize: 12,
+  },
+  formulaText: {
+    color: engineerColors.textNavy,
+    fontSize: 11.5,
+    fontWeight: '800',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  techDescText: {
+    color: engineerColors.textSecondary,
+    fontSize: 11.5,
+    lineHeight: 16,
   },
   infoGrid: {
     flexDirection: 'row',

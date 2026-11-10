@@ -1,5 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal
+
+from app.modules.reports.priority_calculator import (
+    PriorityAssessment,
+    compute_priority_assessment,
+)
 
 
 class BoundingBox(BaseModel):
@@ -29,6 +34,13 @@ class AiDetectionResult(BaseModel):
 
 class AiPreviewDetectionResult(AiDetectionResult):
     preview_token: str | None = None
+    priority_assessment: PriorityAssessment | None = None
+
+    @model_validator(mode="after")
+    def _populate_priority(self) -> "AiPreviewDetectionResult":
+        if self.priority_assessment is None:
+            self.priority_assessment = compute_priority_assessment(self)
+        return self
 
 
 class ReporterReportResponse(BaseModel):
@@ -49,8 +61,18 @@ class ReporterReportResponse(BaseModel):
     ai_status: str
     status: str
     ai_result: AiDetectionResult
+    priority_assessment: PriorityAssessment | None = None
     created_at: str
     updated_at: str
+
+    @model_validator(mode="after")
+    def _populate_priority(self) -> "ReporterReportResponse":
+        field_priority = getattr(self, "field_priority", None)
+        self.priority_assessment = compute_priority_assessment(
+            self.ai_result,
+            field_priority=field_priority,
+        )
+        return self
 
 
 class ReporterReportListResponse(BaseModel):
@@ -128,6 +150,7 @@ class AdminDashboardResponse(BaseModel):
     kpis: list[DashboardKpiItem]
     status_summary: list[DashboardChartItem]
     damage_type_summary: list[DashboardChartItem]
+    priority_summary: list[DashboardChartItem] = Field(default_factory=list)
     timeline: list[DashboardTimelineItem]
 
 

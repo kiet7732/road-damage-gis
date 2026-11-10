@@ -42,6 +42,7 @@ export async function fetchAdminReports({
   pageSize = DEFAULT_PAGE_SIZE,
   status = '',
   damageType = '',
+  priorityLevel = '',
   search = '',
   aiStatus = '',
   hasDamageDetected,
@@ -68,6 +69,10 @@ export async function fetchAdminReports({
 
   if (damageType) {
     params.damage_type = damageType;
+  }
+
+  if (priorityLevel) {
+    params.priority_level = priorityLevel;
   }
 
   if (search?.trim()) {

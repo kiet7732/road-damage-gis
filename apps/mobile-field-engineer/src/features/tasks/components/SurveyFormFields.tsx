@@ -2,7 +2,9 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   FIELD_ENGINEER_PRIORITY_OPTIONS,
   FIELD_ENGINEER_SEVERITY_OPTIONS,
+  getFieldPriorityMeta,
   ROAD_DAMAGE_TYPE_OPTIONS,
+  type PriorityAssessmentData,
 } from '../../../../../../packages/shared-constants/src/fieldDomainMetadata';
 import type { DamageTypeCode } from '../../../../../../packages/mobile-shared/src/theme';
 import { engineerColors, engineerRadius, engineerSpacing } from '../../../styles/engineerTheme';
@@ -14,6 +16,7 @@ type SurveyFormFieldsProps = {
   setSeverity: (severity: string) => void;
   priority: string;
   setPriority: (priority: string) => void;
+  priorityAssessment?: PriorityAssessmentData | null;
   noteDraft: string;
   setNoteDraft: (note: string) => void;
 };
@@ -25,9 +28,12 @@ export default function SurveyFormFields({
   setSeverity,
   priority,
   setPriority,
+  priorityAssessment,
   noteDraft,
   setNoteDraft,
 }: SurveyFormFieldsProps) {
+  const selectedPriorityMeta = getFieldPriorityMeta(priority);
+
   return (
     <>
       {/* Damage Type Grid */}
@@ -90,27 +96,65 @@ export default function SurveyFormFields({
           })}
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>3. MỨC ĐỘ ƯU TIÊN XỬ LÝ</Text>
-        <View style={styles.chipWrap}>
+        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>
+          3. MỨC ĐỘ ƯU TIÊN XỬ LÝ (4 CẤP BẬC KỸ THUẬT)
+        </Text>
+
+        {priorityAssessment && priorityAssessment.levelCode !== 'unrated' ? (
+          <View
+            style={[
+              styles.aiPriorityHintBox,
+              {
+                backgroundColor: priorityAssessment.backgroundColor,
+                borderColor: priorityAssessment.borderColor,
+              },
+            ]}
+          >
+            <Text style={[styles.aiPriorityHintTitle, { color: priorityAssessment.color }]}>
+              🤖 Gợi ý từ AI: {priorityAssessment.levelLabel} (S_priority = {priorityAssessment.scorePercent}%)
+            </Text>
+            <Text style={styles.aiPriorityHintSub}>{priorityAssessment.formulaText}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.priorityStack}>
           {FIELD_ENGINEER_PRIORITY_OPTIONS.map((option) => {
-            const selected = priority === option.value;
+            const selected =
+              priority === option.value || selectedPriorityMeta?.key === option.key;
             return (
               <Pressable
                 key={option.key}
                 onPress={() => setPriority(option.value)}
                 style={({ pressed }) => [
-                  styles.levelChip,
+                  styles.priorityRowCard,
                   selected && {
                     backgroundColor: option.backgroundColor,
-                    borderColor: option.borderColor,
+                    borderColor: option.borderColor || option.color,
                     borderWidth: 2,
                   },
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.levelChipText, selected && { color: option.color, fontWeight: '900' }]}>
-                  {option.label}
-                </Text>
+                <View style={styles.priorityRowHeader}>
+                  <Text
+                    style={[
+                      styles.priorityRowTitle,
+                      selected && { color: option.color, fontWeight: '900' },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                  {option.thresholdText ? (
+                    <Text
+                      style={[
+                        styles.priorityThresholdBadge,
+                        selected && { color: option.color },
+                      ]}
+                    >
+                      {option.thresholdText}
+                    </Text>
+                  ) : null}
+                </View>
               </Pressable>
             );
           })}
@@ -205,6 +249,48 @@ const styles = StyleSheet.create({
   },
   levelChipText: {
     color: engineerColors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  aiPriorityHintBox: {
+    padding: 10,
+    borderRadius: engineerRadius.xs,
+    borderWidth: 1,
+    gap: 3,
+  },
+  aiPriorityHintTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  aiPriorityHintSub: {
+    fontSize: 11,
+    color: engineerColors.textSecondary,
+  },
+  priorityStack: {
+    gap: 8,
+  },
+  priorityRowCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: engineerRadius.xs,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  priorityRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  priorityRowTitle: {
+    color: engineerColors.textPrimary,
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  priorityThresholdBadge: {
+    color: engineerColors.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },

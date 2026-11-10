@@ -9,7 +9,7 @@ import Panel from '../Panel';
 import { DAMAGE_TYPES, UI_COLORS } from '../../constants/statusColors';
 import { formatDateTime } from '../../utils/formatters';
 import { getAiPredictedDamageType } from '../../utils/reportDamage';
-import { SEVERITY_CONFIG, PRIORITY_CONFIG } from './reportDetailConstants';
+import { SEVERITY_CONFIG, getPriorityBadgeConfig } from './reportDetailConstants';
 import { DetailItem } from './ReportInfoCard';
 
 export default function ReportSurveyEvidenceCard({ report, onSelectPhoto }) {
@@ -114,19 +114,24 @@ export default function ReportSurveyEvidenceCard({ report, onSelectPhoto }) {
                 }
               />
               <DetailItem
-                label="Mức độ ưu tiên xử lý"
+                label="Mức độ ưu tiên xử lý (Thực địa)"
                 value={
                   report.field_priority ? (
-                    <span
-                      style={{
-                        ...styles.badgePill,
-                        color: (PRIORITY_CONFIG[report.field_priority] || PRIORITY_CONFIG['Trung bình']).text,
-                        background: (PRIORITY_CONFIG[report.field_priority] || PRIORITY_CONFIG['Trung bình']).background,
-                        borderColor: (PRIORITY_CONFIG[report.field_priority] || PRIORITY_CONFIG['Trung bình']).border,
-                      }}
-                    >
-                      {report.field_priority}
-                    </span>
+                    (() => {
+                      const pCfg = getPriorityBadgeConfig(report.field_priority);
+                      return (
+                        <span
+                          style={{
+                            ...styles.badgePill,
+                            color: pCfg.text,
+                            background: pCfg.background,
+                            borderColor: pCfg.border,
+                          }}
+                        >
+                          {pCfg.label}
+                        </span>
+                      );
+                    })()
                   ) : (
                     'Chưa đánh giá'
                   )

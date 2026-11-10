@@ -1,3 +1,5 @@
+import { getFieldPriorityMeta } from '../../../../../packages/shared-constants/src/fieldDomainMetadata';
+
 export const SEVERITY_CONFIG = {
   'Nặng': { text: '#B91C1C', background: '#FEF2F2', border: '#FECACA' },
   'Trung bình': { text: '#B45309', background: '#FFFBEB', border: '#FDE68A' },
@@ -5,12 +7,48 @@ export const SEVERITY_CONFIG = {
 };
 
 export const PRIORITY_CONFIG = {
-  'Khẩn': { text: '#991B1B', background: '#FFE4E6', border: '#FECDD3' },
-  'Khẩn cấp': { text: '#991B1B', background: '#FFE4E6', border: '#FECDD3' },
-  'Cao': { text: '#C2410C', background: '#FFF7ED', border: '#FED7AA' },
-  'Trung bình': { text: '#1D4ED8', background: '#EFF6FF', border: '#BFDBFE' },
-  'Thấp': { text: '#475569', background: '#F8FAFC', border: '#E2E8F0' },
+  'Cấp 1 – Cực kỳ nghiêm trọng': { text: '#BE123C', background: '#FFF1F2', border: '#FDA4AF' },
+  'Cấp 1': { text: '#BE123C', background: '#FFF1F2', border: '#FDA4AF' },
+  level_1: { text: '#BE123C', background: '#FFF1F2', border: '#FDA4AF' },
+  'Khẩn': { text: '#BE123C', background: '#FFF1F2', border: '#FDA4AF' },
+  'Khẩn cấp': { text: '#BE123C', background: '#FFF1F2', border: '#FDA4AF' },
+  'Cấp 2 – Nghiêm trọng': { text: '#C2410C', background: '#FFF7ED', border: '#FDBA74' },
+  'Cấp 2': { text: '#C2410C', background: '#FFF7ED', border: '#FDBA74' },
+  level_2: { text: '#C2410C', background: '#FFF7ED', border: '#FDBA74' },
+  'Cao': { text: '#C2410C', background: '#FFF7ED', border: '#FDBA74' },
+  'Cấp 3 – Cần khắc phục': { text: '#B45309', background: '#FFFBEB', border: '#FCD34D' },
+  'Cấp 3': { text: '#B45309', background: '#FFFBEB', border: '#FCD34D' },
+  level_3: { text: '#B45309', background: '#FFFBEB', border: '#FCD34D' },
+  'Trung bình': { text: '#B45309', background: '#FFFBEB', border: '#FCD34D' },
+  'Cấp 4 – Hư hỏng nhẹ': { text: '#0F766E', background: '#F0FDFA', border: '#99F6E4' },
+  'Cấp 4': { text: '#0F766E', background: '#F0FDFA', border: '#99F6E4' },
+  level_4: { text: '#0F766E', background: '#F0FDFA', border: '#99F6E4' },
+  'Thấp': { text: '#0F766E', background: '#F0FDFA', border: '#99F6E4' },
 };
+
+export function getPriorityBadgeConfig(value) {
+  if (value && PRIORITY_CONFIG[value]) {
+    return {
+      ...PRIORITY_CONFIG[value],
+      label: getFieldPriorityMeta(value)?.label || value,
+    };
+  }
+  const meta = getFieldPriorityMeta(value);
+  if (meta) {
+    return {
+      text: meta.color,
+      background: meta.backgroundColor,
+      border: meta.borderColor,
+      label: meta.label,
+    };
+  }
+  return {
+    text: '#475569',
+    background: '#F8FAFC',
+    border: '#E2E8F0',
+    label: value || 'Chưa đánh giá',
+  };
+}
 
 export const STATUS_OPTIONS = [
   { value: 'pending', label: 'Chờ xác minh' },

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DamageTypeCode } from '../../../../../packages/mobile-shared/src/theme';
+import { getFieldPriorityMeta } from '../../../../../packages/shared-constants/src/fieldDomainMetadata';
 import type { EngineerRootStackParamList } from '../../types/navigation';
 import { AppButton, EmptyState, getDeviceCurrentLocation } from '../../shared/mobileShared';
 import {
@@ -45,7 +46,12 @@ export default function EngineerSurveyScreen({ route, navigation }: Props) {
       setTask(detail);
       setVerifiedDamageType(detail.fieldVerifiedDamageType ?? detail.type ?? null);
       setSeverity(detail.fieldSeverity || '');
-      setPriority(detail.fieldPriority || '');
+      const normalizedFieldPriority = getFieldPriorityMeta(detail.fieldPriority || '')?.value;
+      const suggestedAiPriority =
+        detail.priorityAssessment?.levelCode !== 'unrated'
+          ? detail.priorityAssessment?.levelLabel
+          : '';
+      setPriority(normalizedFieldPriority || detail.fieldPriority || suggestedAiPriority || '');
       setNoteDraft(detail.fieldNote || detail.note || '');
       hasLoadedRef.current = true;
     } catch (loadError) {
@@ -176,6 +182,7 @@ export default function EngineerSurveyScreen({ route, navigation }: Props) {
         setSeverity={setSeverity}
         priority={priority}
         setPriority={setPriority}
+        priorityAssessment={task.priorityAssessment}
         noteDraft={noteDraft}
         setNoteDraft={setNoteDraft}
       />
