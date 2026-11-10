@@ -566,7 +566,7 @@ class GisRepository:
                     ST_ClusterDBSCAN(geom, eps := ?, minpoints := ?) OVER () AS cluster_id
                 FROM reports
                 WHERE (?::varchar IS NULL OR status = ?)
-                  AND (?::varchar IS NULL OR province ILIKE '%' || ? || '%')
+                  AND (?::varchar IS NULL OR province ILIKE ?)
                   AND (?::varchar IS NULL OR district = ?)
                   AND (?::varchar IS NULL OR ward = ?)
             )
@@ -592,7 +592,8 @@ class GisRepository:
             GROUP BY cluster_id
             ORDER BY count DESC;
             """
-            params = (eps, min_points, status, status, province, province, district, district, ward, ward)
+            prov_param = f"%{province.strip()}%" if province and province.strip() else None
+            params = (eps, min_points, status, status, prov_param, prov_param, district, district, ward, ward)
             rows = self.connection.execute(sql, params).fetchall()
 
             results: list[GisReportClusterItem] = []

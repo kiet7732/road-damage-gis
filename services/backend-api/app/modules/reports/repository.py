@@ -254,7 +254,7 @@ class ReportRepository(ReportGisMixin, ReportEngineerMixin, ReportAnalyticsMixin
             """,
             (
                 corrected_damage_type,
-                1 if is_ai_overridden else 0,
+                bool(is_ai_overridden),
                 updated_at,
                 report_id,
             ),

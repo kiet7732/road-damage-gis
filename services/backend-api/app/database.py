@@ -22,6 +22,8 @@ def convert_qmark_to_pyformat(query: str) -> str:
             parts.append(char)
         elif char == "?" and not in_string:
             parts.append("%s")
+        elif char == "%":
+            parts.append("%%")
         else:
             escaped = False
             parts.append(char)
