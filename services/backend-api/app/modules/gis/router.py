@@ -198,7 +198,6 @@ def get_road_restrictions(
     current_user: AuthUser = Depends(get_current_user),
     service: GisService = Depends(get_gis_service),
 ) -> RoadRestrictionListResponse:
-    enforce_web_only_role_restriction(current_user)
     effective_province = enforce_spatial_province_access(current_user, province)
     effective_district = enforce_spatial_district_access(current_user, district)
     return service.get_road_restrictions(
@@ -215,8 +214,6 @@ def create_road_restriction(
     current_user: AuthUser = Depends(get_admin_user),
     service: GisService = Depends(get_gis_service),
 ) -> RoadRestrictionItem:
-    enforce_web_only_role_restriction(current_user)
-
     if current_user.role == "province_officer":
         managed = normalize_province_name(current_user.managed_province)
         target = normalize_province_name(payload.province)
@@ -236,8 +233,6 @@ def update_road_restriction(
     current_user: AuthUser = Depends(get_admin_user),
     service: GisService = Depends(get_gis_service),
 ) -> RoadRestrictionItem:
-    enforce_web_only_role_restriction(current_user)
-
     existing = service.get_road_restriction_by_id(restriction_id)
     if not existing:
         raise HTTPException(
@@ -275,8 +270,6 @@ def update_road_restriction_status(
     current_user: AuthUser = Depends(get_admin_user),
     service: GisService = Depends(get_gis_service),
 ) -> RoadRestrictionItem:
-    enforce_web_only_role_restriction(current_user)
-
     existing = service.get_road_restriction_by_id(restriction_id)
     if not existing:
         raise HTTPException(
@@ -308,8 +301,6 @@ def delete_road_restriction(
     current_user: AuthUser = Depends(get_admin_user),
     service: GisService = Depends(get_gis_service),
 ) -> dict[str, Any]:
-    enforce_web_only_role_restriction(current_user)
-
     existing = service.get_road_restriction_by_id(restriction_id)
     if not existing:
         raise HTTPException(
@@ -332,4 +323,5 @@ def delete_road_restriction(
         "message": "Đã xóa đoạn đường hạn chế thành công",
         "id": restriction_id,
     }
+
 
